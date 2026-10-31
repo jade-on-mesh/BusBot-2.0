@@ -28,6 +28,9 @@ export type CommandContext = {
 	isDM: boolean;
 	pubKey?: string; // hex, DMs only
 	name?: string;
+	// Words riders type for each command (canonical -> typed), sent by the
+	// meshcore-bot plugin so help shows e.g. "busalerts" instead of "alerts".
+	say?: Record<string, string>;
 };
 
 let validQueryCount = 0;
@@ -46,29 +49,31 @@ export const handleCommand = async (
 	try {
 		switch (command) {
 			case "help": {
-				const topic = args[0];
-				if (topic === "alerts") return helpAlerts();
+				// Accept the rider-facing word too: "help busalerts" -> alerts.
+				const typed = args[0];
+				const topic = Object.entries(ctx.say ?? {}).find(([, w]) => w === typed)?.[0] ?? typed;
+				if (topic === "alerts") return helpAlerts(ctx.say);
 				if (topic === "beats") return helpBeats();
-				if (topic === "bus") return helpBus();
-				if (topic === "fav") return helpFav();
+				if (topic === "bus") return helpBus(ctx.say);
+				if (topic === "fav" || topic === "favs") return helpFav(ctx.say);
 				if (topic === "info") return helpInfo();
 				if (topic === "stats") return helpStats();
-				if (topic === "stops") return helpStops();
+				if (topic === "stops") return helpStops(ctx.say);
 				if (topic === "admin" && isAdmin(ctx.pubKey)) return helpAdmin();
-				return help(ctx.isDM);
+				return help(ctx.isDM, ctx.say);
 			}
 			case "info":
 				return info();
 			case "bus":
 			case "alerts": {
-				if (!args.length) return command === "bus" ? helpBus() : helpAlerts();
+				if (!args.length) return command === "bus" ? helpBus(ctx.say) : helpAlerts(ctx.say);
 				const [stopId, ...routeWords] = args;
 				const routeId = routeWords.join(" ");
 				if (command === "bus") return routeId ? busStopAndRoute(stopId, routeId) : busStop(stopId);
 				return routeId ? alertsStopAndRoute(stopId, routeId) : alertsStop(stopId);
 			}
 			case "stops":
-				return stops(args.join(" "));
+				return args.length ? stops(args.join(" ")) : helpStops(ctx.say);
 			case "fav":
 			case "favs":
 			case "favorites":

@@ -146,7 +146,7 @@ describe("router", () => {
 	});
 	it("answers commands", async () => {
 		assert.equal(await handleCommand("ping", { isDM: false }), "pong!");
-		assert.match((await handleCommand("bus", { isDM: false }))!, /^Use bus/);
+		assert.match((await handleCommand("bus", { isDM: false }))!, /^Next arrivals/);
 		assert.match((await handleCommand("  BUS 1120 G Line ", { isDM: false }))!, /G Line/);
 	});
 	it("keeps fav and admin commands out of the channel", async () => {
@@ -311,5 +311,23 @@ describe("stops search", () => {
 		process.env.GEOCODE = "on";
 		globalThis.fetch = (async () => new Response("[]")) as unknown as typeof fetch;
 		assert.match((await handleCommand("stops zzzz nowhere", { isDM: false }))!, /Couldn't find that in King County/);
+	});
+});
+
+describe("help", () => {
+	it("lists commands standalone, with fav only in DMs", async () => {
+		const ch = (await handleCommand("help", { isDM: false }))!;
+		assert.match(ch, /^Transit:\nbus \[stop\] \[route\]\nstops \[streets\/address\]\nalerts \[stop\]\ninfo stats beats\nhelp \[cmd\] = examples$/);
+		assert.doesNotMatch(ch, /fav/);
+		assert.match((await handleCommand("help", { isDM: true }))!, /\nfav add \[stop\]\n/);
+	});
+	it("uses the words riders type under meshcore-bot, and accepts them as topics", async () => {
+		const say = { bus: "bus", alerts: "busalerts", stops: "stops", fav: "fav", help: "bushelp" };
+		const h = (await handleCommand("help", { isDM: false, say }))!;
+		assert.match(h, /\nbusalerts \[stop\]\n/);
+		assert.match(h, /\nbushelp \[cmd\] = examples$/);
+		assert.doesNotMatch(h, /info stats/);
+		assert.match((await handleCommand("help busalerts", { isDM: false, say }))!, /\nbusalerts 1120 11\n/);
+		assert.match((await handleCommand("stops", { isDM: false, say }))!, /stops pine 4th/);
 	});
 });

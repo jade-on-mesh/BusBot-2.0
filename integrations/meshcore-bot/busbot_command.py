@@ -18,7 +18,9 @@ Optional settings in local/config.ini:
     # word riders type = word BusBot understands. Rename a word here if it
     # collides with another meshcore-bot command. "alerts" belongs to
     # meshcore-bot's own alert command, so riders type "busalerts [stop]".
-    keywords = bus=bus, busalerts=alerts, stops=stops, fav=fav
+    keywords = bus=bus, busalerts=alerts, stops=stops, fav=fav, bushelp=help
+    # "help" in a BusBot-only channel (see channels above) also shows BusBot's
+    # help, since meshcore-bot's own help doesn't answer there.
 """
 
 import asyncio
@@ -38,7 +40,7 @@ class BusBotCommand(BaseCommand):
     """King County Metro arrivals, alerts and favorite stops via BusBot."""
 
     name = "busbot"
-    keywords = ["bus", "busalerts", "stops", "fav"]
+    keywords = ["bus", "busalerts", "stops", "fav", "bushelp", "help"]
     description = (
         "King County Metro arrivals and alerts. 'bus [stop]', 'bus [stop] [route]', "
         "'busalerts [stop]', 'stops [cross streets or address]'. In DMs: 'fav add [stop]', 'fav'."
@@ -62,7 +64,7 @@ class BusBotCommand(BaseCommand):
         self.busbot_enabled = self.get_config_value(SECTION, "enabled", fallback=True, value_type="bool")
         self.url = self.get_config_value(SECTION, "url", fallback="http://127.0.0.1:8787/command")
         self.timeout = float(self.get_config_value(SECTION, "timeout", fallback="15"))
-        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, stops=stops, fav=fav")
+        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, stops=stops, fav=fav, bushelp=help")
         self.word_map = {}
         for pair in str(raw).split(","):
             if "=" in pair:
@@ -70,6 +72,8 @@ class BusBotCommand(BaseCommand):
                 if said and means:
                     self.word_map[said] = means
         self.keywords = list(self.word_map) or ["bus"]
+        if "help" not in self.word_map:
+            self.keywords.append("help")  # only claimed in BusBot-only channels
 
     def can_execute(self, message: MeshMessage, skip_channel_check: bool = False) -> bool:
         if not self.busbot_enabled:
@@ -80,12 +84,33 @@ class BusBotCommand(BaseCommand):
         # First word only, so chatter like "busy" or "alerts are annoying" in
         # a channel only triggers when it's actually "alerts [stop]".
         words = self.cleanup_message_for_matching(message).split()
-        if not words or words[0] not in self.word_map:
+        if not words:
+            return False
+        if words[0] == "help" and "help" not in self.word_map:
+            return self._in_own_channel(message)
+        if words[0] not in self.word_map:
             return False
         means = self.word_map[words[0]]
         if means == "fav":
             return bool(message.is_dm)
         return len(words) == 1 or words[1][:1].isalnum()
+
+    def _in_own_channel(self, message: MeshMessage) -> bool:
+        """True in a channel listed under [BusBot_Command] channels, where
+        meshcore-bot's other commands (including its help) don't answer."""
+        allowed = getattr(self, "allowed_channels", None)
+        if message.is_dm or not message.channel or not allowed:
+            return False
+        return message.channel.lower().strip() in {c.lower().strip() for c in allowed}
+
+    def _words_for(self, message: MeshMessage) -> dict:
+        """canonical command -> word riders type, so BusBot's help matches."""
+        say = {}
+        for said, means in self.word_map.items():
+            say.setdefault(means, said)
+        if self._in_own_channel(message):
+            say["help"] = "help"
+        return say
 
     def _post(self, payload: dict) -> dict:
         req = urllib.request.Request(
@@ -140,6 +165,7 @@ class BusBotCommand(BaseCommand):
             "isDM": bool(message.is_dm),
             "name": message.sender_id,
             "pubKey": message.sender_pubkey,
+            "words": self._words_for(message),
         }
         try:
             data = await asyncio.to_thread(self._post, payload)

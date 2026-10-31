@@ -177,5 +177,7 @@ export const stops = async (query: string) => {
 	].join("\n");
 };
 
-export const helpStops = () =>
-	"Find stop numbers. Cross streets or an address. Ex:\nstops pine 4th\nstops broadway madison\nstops 1100 broadway\nstops pike place market";
+export const helpStops = (say?: Record<string, string>) => {
+	const s = say?.stops ?? "stops";
+	return `${em("🔎", "Find stop numbers. Ex:")}\n${s} pine 4th\n${s} 1100 broadway\n${s} pike place market`;
+};

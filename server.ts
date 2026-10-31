@@ -72,19 +72,27 @@ const server = createServer(async (req, res) => {
 		}
 		if (req.method !== "POST" || req.url !== "/command") return send(404, { error: "not found" });
 
-		const { text, isDM = false, name, pubKey } = JSON.parse(await readBody(req)) as {
+		const { text, isDM = false, name, pubKey, words } = JSON.parse(await readBody(req)) as {
 			text?: string;
 			isDM?: boolean;
 			name?: string;
 			pubKey?: string;
+			words?: Record<string, string>;
 		};
+		// canonical command -> the word riders type through the caller (for help text)
+		const say =
+			words && typeof words === "object"
+				? Object.fromEntries(
+						Object.entries(words).filter(([k, v]) => typeof k === "string" && typeof v === "string" && v.length <= 20),
+					)
+				: undefined;
 		if (typeof text !== "string") return send(400, { error: "text required" });
 		const key = typeof pubKey === "string" && /^[0-9a-fA-F]{6,64}$/.test(pubKey) ? pubKey.toLowerCase() : undefined;
 
 		if (isBlocked({ name, pubKey: key })) return send(200, { reply: null, parts: [], blocked: true });
 		if (isDM && key) ensureUser(key, name);
 
-		const reply = await handleCommand(text, { isDM: Boolean(isDM), pubKey: key, name });
+		const reply = await handleCommand(text, { isDM: Boolean(isDM), pubKey: key, name, say });
 		if (!reply) return send(200, { reply: null, parts: [] });
 		countQuery();
 		return send(200, { reply, parts: divideReply(reply) });
