@@ -789,6 +789,8 @@ describe("typos", () => {
 		process.env.GEOCODE = "off";
 		assert.match((await handleCommand("stops alkai ave", { isDM: false }))!, /^alki ave:\n1700 Alki Ave SW & 61st Ave SW/);
 		assert.match((await handleCommand("stops braodway pine", { isDM: false }))!, /^broadway pine:\n11040 /);
+		// no address lookup: drop "beach" and use the stop names
+		assert.match((await handleCommand("stops akai beach", { isDM: false }))!, /^alki:\n1700 Alki Ave SW/);
 	});
 	it("retries the address lookup with the typo fixed", async () => {
 		process.env.GEOCODE = "on";

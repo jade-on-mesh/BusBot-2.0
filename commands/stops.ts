@@ -156,6 +156,19 @@ export const searchStopsFuzzy = (query: string): { stops: Stop[]; query: string 
 	return { stops: [], query };
 };
 
+// Last resort when there's no address lookup (or it found nothing): drop
+// generic place words, so "akai beach" still finds the stops on Alki Ave
+// offline. Skipped when what's left matches too many stops to be useful.
+const PLACE_WORD_SET = new Set(PLACE_WORDS.split(" "));
+export const searchWithoutPlaceWords = (query: string): { stops: Stop[]; query: string } => {
+	const words = tokens(correctQuery(query) ?? query);
+	const kept = words.filter((w) => !PLACE_WORD_SET.has(w));
+	if (kept.length === words.length || !kept.length) return { stops: [], query };
+	const q = kept.join(" ");
+	const hits = searchStopsByName(q);
+	return hits.length && hits.length <= 25 ? { stops: hits, query: q } : { stops: [], query };
+};
+
 // Geocode as typed, then with typos corrected (an address lookup needs every
 // word to match, so a typo usually finds nothing rather than somewhere wrong).
 export const geocodeFuzzy = async (query: string): Promise<Geo | null> => {
@@ -251,21 +264,27 @@ export const stops = async (query: string) => {
 	const q = query.trim();
 	if (!q) return helpStops();
 
-	const { stops: byName, query: matched } = searchStopsFuzzy(q);
-	if (byName.length) {
-		const more = byName.length > MAX_RESULTS ? ` (${byName.length} found)` : "";
-		return [em("🔎", `${shorten(matched)}${more}:`), ...byName.slice(0, MAX_RESULTS).map((s) => stopLine(s))].join("\n");
-	}
+	const list = ({ stops: found, query: matched }: { stops: Stop[]; query: string }) => {
+		const more = found.length > MAX_RESULTS ? ` (${found.length} found)` : "";
+		return [em("🔎", `${shorten(matched)}${more}:`), ...found.slice(0, MAX_RESULTS).map((s) => stopLine(s))].join("\n");
+	};
+	const byName = searchStopsFuzzy(q);
+	if (byName.stops.length) return list(byName);
+	// a closer-than-nothing answer for when the address lookup can't help
+	const orElse = (message: string) => {
+		const loose = searchWithoutPlaceWords(q);
+		return loose.stops.length ? list(loose) : message;
+	};
 
-	if (!geocodingEnabled()) return em("❓", "No stops match that. Try cross streets, e.g. stops pine 4th");
+	if (!geocodingEnabled()) return orElse(em("❓", "No stops match that. Try cross streets, e.g. stops pine 4th"));
 	let place: Geo | null;
 	try {
 		place = await geocodeFuzzy(q);
 	} catch (e) {
 		console.log("Geocoding failed:", (e as Error).message);
-		return em("📴", "No stop names match, and address lookup is offline. Try cross streets, e.g. stops pine 4th");
+		return orElse(em("📴", "No stop names match, and address lookup is offline. Try cross streets, e.g. stops pine 4th"));
 	}
-	if (!place) return em("❓", "Couldn't find that around Puget Sound. Try cross streets, e.g. stops pine 4th");
+	if (!place) return orElse(em("❓", "Couldn't find that around Puget Sound. Try cross streets, e.g. stops pine 4th"));
 	const near = nearestStops(place.lat, place.lon);
 	if (!near.length) return em("❓", "No stops with service within 2 miles of there.");
 	return [

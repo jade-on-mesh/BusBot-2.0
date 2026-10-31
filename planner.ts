@@ -21,7 +21,7 @@ import {
 	stopTimesByStop,
 	tripsByKey,
 } from "./gtfs";
-import { geocodeFuzzy, geocodingEnabled, searchStopsFuzzy } from "./commands/stops";
+import { geocodeFuzzy, geocodingEnabled, searchStopsFuzzy, searchWithoutPlaceWords } from "./commands/stops";
 import { notePin } from "./pins";
 import { em, routeEmoji } from "./style";
 import { localParts, serviceDays, ServiceDay } from "./time";
@@ -217,15 +217,19 @@ export const resolvePlace = async (
 	// Cross streets
 	const { stops: named } = searchStopsFuzzy(q);
 	if (named.length) return { cands: aroundStops(n, named.slice(0, 8)), label: shortStop(named[0]) };
-	// Address or landmark
-	if (!geocodingEnabled()) return { error: em("❓", `Couldn't find "${q}". Try a stop number or cross streets.`) };
+	// Address or landmark; without one, the stop names minus place words
+	const loose = (error: string): PlaceResult => {
+		const { stops: hits } = searchWithoutPlaceWords(q);
+		return hits.length ? { cands: aroundStops(n, hits.slice(0, 8)), label: shortStop(hits[0]) } : { error };
+	};
+	if (!geocodingEnabled()) return loose(em("❓", `Couldn't find "${q}". Try a stop number or cross streets.`));
 	try {
 		const place = await geocodeFuzzy(q);
-		if (!place) return { error: em("❓", `Couldn't find "${q}" around Puget Sound.`) };
+		if (!place) return loose(em("❓", `Couldn't find "${q}" around Puget Sound.`));
 		const cands = withinWalk(n, place.lat, place.lon);
 		return cands.size ? { cands, label: q } : { error: em("❓", `No stops within a 10-min walk of "${q}".`) };
 	} catch {
-		return { error: em("📴", `"${q}" needs an address lookup, which is offline. Try cross streets.`) };
+		return loose(em("📴", `"${q}" needs an address lookup, which is offline. Try cross streets.`));
 	}
 };
 
