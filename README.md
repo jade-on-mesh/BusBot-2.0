@@ -35,7 +35,7 @@ BusBot can run without its own radio and answer through meshcore-bot instead:
 
 1. `npm run serve` starts a local-only API on `127.0.0.1:8787` (`BUSBOT_PORT` to change). Run it as a service with `integrations/meshcore-bot/busbot-api.service`.
 2. Copy `integrations/meshcore-bot/busbot_command.py` into meshcore-bot's `local/commands/` folder and restart meshcore-bot.
-3. Riders use `bus`, `alerts` and `fav` on whatever channels meshcore-bot monitors. Options (URL, keyword renames) go in meshcore-bot's `local/config.ini` under `[BusBot_Command]`; see the top of the plugin file.
+3. Riders use `bus`, `busalerts` and `fav` (meshcore-bot's own alert command owns `alerts`). Set `channels = #transit` under `[BusBot_Command]` to answer only there; meshcore-bot's other commands won't answer in a channel they don't monitor. If the bot's radio doesn't have the channel yet, stop the bot and run `npx tsx scripts/add_channel.ts <serial port> "#transit"`. Other options (URL, keyword renames) go in meshcore-bot's `local/config.ini` under `[BusBot_Command]`; see the top of the plugin file.
 
 In this mode meshcore-bot owns the contacts, so BusBot's contact eviction doesn't apply. `SERIAL_PORT`, `NODE_NAME` and `BOT_CHANNEL` aren't needed.
 

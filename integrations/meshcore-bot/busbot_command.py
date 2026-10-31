@@ -16,8 +16,9 @@ Optional settings in local/config.ini:
     url = http://127.0.0.1:8787/command
     timeout = 15
     # word riders type = word BusBot understands. Rename a word here if it
-    # collides with another meshcore-bot command (e.g. busalerts=alerts).
-    keywords = bus=bus, alerts=alerts, fav=fav
+    # collides with another meshcore-bot command. "alerts" belongs to
+    # meshcore-bot's own alert command, so riders type "busalerts [stop]".
+    keywords = bus=bus, busalerts=alerts, fav=fav
 """
 
 import asyncio
@@ -37,15 +38,15 @@ class BusBotCommand(BaseCommand):
     """King County Metro arrivals, alerts and favorite stops via BusBot."""
 
     name = "busbot"
-    keywords = ["bus", "alerts", "fav"]
+    keywords = ["bus", "busalerts", "fav"]
     description = (
         "King County Metro arrivals and alerts. 'bus [stop]', 'bus [stop] [route]', "
-        "'alerts [stop]'. In DMs: 'fav add [stop]', 'fav'."
+        "'busalerts [stop]'. In DMs: 'fav add [stop]', 'fav'."
     )
     category = "info"
     short_description = "King County Metro arrivals and alerts"
     usage = "bus [stop] [route]"
-    examples = ["bus 1120", "bus 1120 11", "bus 120 G Line", "alerts 1120", "fav add 1120"]
+    examples = ["bus 1120", "bus 1120 11", "bus 120 G Line", "busalerts 1120", "fav add 1120"]
     parameters = [
         {"name": "stop", "description": "Stop number from the bus stop sign"},
         {"name": "route", "description": "Optional route, e.g. 11 or G Line"},
@@ -61,7 +62,7 @@ class BusBotCommand(BaseCommand):
         self.busbot_enabled = self.get_config_value(SECTION, "enabled", fallback=True, value_type="bool")
         self.url = self.get_config_value(SECTION, "url", fallback="http://127.0.0.1:8787/command")
         self.timeout = float(self.get_config_value(SECTION, "timeout", fallback="15"))
-        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, alerts=alerts, fav=fav")
+        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, fav=fav")
         self.word_map = {}
         for pair in str(raw).split(","):
             if "=" in pair:
