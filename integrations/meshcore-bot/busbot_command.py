@@ -11,6 +11,8 @@ Optional settings in local/config.ini:
 
     [BusBot_Command]
     enabled = true
+    # answer only in these channels (plus DMs); leave out to use monitor_channels
+    channels = #transit
     url = http://127.0.0.1:8787/command
     timeout = 15
     # word riders type = word BusBot understands. Rename a word here if it
@@ -48,6 +50,11 @@ class BusBotCommand(BaseCommand):
         {"name": "stop", "description": "Stop number from the bus stop sign"},
         {"name": "route", "description": "Optional route, e.g. 11 or G Line"},
     ]
+
+    def _derive_config_section_name(self) -> str:
+        # meshcore-bot derives "channels"/"aliases" lookups from this; pin it so
+        # they read the same [BusBot_Command] section as the settings below.
+        return SECTION
 
     def __init__(self, bot):
         super().__init__(bot)
