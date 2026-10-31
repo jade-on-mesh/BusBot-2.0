@@ -12,7 +12,7 @@ const body = ({ texts, state }: AlertsResult, stop: Stop) => {
 	return em("✅", "No alerts.");
 };
 
-const isActive = (alert: Alert, nowMs: number) => {
+export const isActive = (alert: Alert, nowMs: number) => {
 	const periods = alert.alert.active_period ?? [];
 	if (!periods.length) return true;
 	const now = nowMs / 1000;
@@ -34,7 +34,7 @@ const matches = (alert: Alert, stop: Stop, route?: Route) => {
 	});
 };
 
-const alertText = (alert: Alert) =>
+export const alertText = (alert: Alert) =>
 	translate(alert.alert.short_header_text) ?? translate(alert.alert.header_text) ?? "Service alert";
 
 const gtfsAlerts = async (stop: Stop, route?: Route, nowMs = Date.now()): Promise<AlertsResult> => {

@@ -583,3 +583,78 @@ describe("ride alarms", () => {
 		assert.deepEqual(["25:00", "8:75", "13pm", "noonish"].map(t), [undefined, undefined, undefined, undefined]);
 	});
 });
+
+describe("quiet-channel alert posts", () => {
+	const realFetch = globalThis.fetch;
+	let b: typeof import("../broadcast");
+	let rt: typeof import("../realtime");
+	before(async () => {
+		b = await import("../broadcast");
+		rt = await import("../realtime");
+	});
+	after(() => {
+		globalThis.fetch = realFetch;
+		delete process.env.ALERT_QUIET_HOURS;
+		delete process.env.ALERT_POSTS;
+	});
+	const fresh = (alerts?: object[]) => {
+		rt.clearRealtimeCache();
+		b.resetBroadcasts();
+		globalThis.fetch = alerts
+			? ((async (u: string) =>
+					String(u).includes("alerts")
+						? new Response(JSON.stringify({ entity: alerts }))
+						: realFetch(u)) as typeof fetch)
+			: realFetch;
+	};
+	const WED_0910 = TUE_0810 + 25 * 3600_000;
+	const TUE_2300 = t("2026-10-28T06:00:00Z");
+
+	it("posts an active alert once, not again for 24 hours", async () => {
+		fresh();
+		assert.equal(await b.nextBroadcast(TUE_0810), "11: Ruta 11 desviada");
+		assert.equal(await b.nextBroadcast(TUE_0810 + 3600_000), null, "already posted");
+		rt.clearRealtimeCache();
+		assert.equal(await b.nextBroadcast(WED_0910), "11: Ruta 11 desviada");
+	});
+	it("stays quiet overnight unless told otherwise", async () => {
+		fresh();
+		assert.equal(await b.nextBroadcast(TUE_2300), null);
+		process.env.ALERT_QUIET_HOURS = "off";
+		assert.equal(await b.nextBroadcast(TUE_2300), "11: Ruta 11 desviada");
+		delete process.env.ALERT_QUIET_HOURS;
+	});
+	it("picks the most severe first, then the newest, and fits one message", async () => {
+		const mk = (id: string, sev: string, ts: number, text: string, route = "100011") => ({
+			id,
+			alert: {
+				severity_level: sev,
+				last_modified_timestamp: ts,
+				header_text: { translation: [{ text, language: "en" }] },
+				informed_entity: [{ route_id: route }, { route_id: "102745" }],
+			},
+		});
+		fresh([
+			mk("new-info", "INFO", 300, "Stop closed for sidewalk work"),
+			mk("old-severe", "SEVERE", 100, "No service on 3rd Ave due to police activity. Use 2nd Ave stops. ".repeat(3)),
+			mk("mid-warning", "WARNING", 200, "Snow routes in effect"),
+		]);
+		const first = (await b.nextBroadcast(TUE_0810))!;
+		assert.match(first, /^11\/G Line: No service on 3rd Ave/);
+		assert.ok(Buffer.byteLength(first) <= 115 && first.endsWith("…"), first);
+		assert.equal(await b.nextBroadcast(TUE_0810), "11/G Line: Snow routes in effect");
+		assert.equal(await b.nextBroadcast(TUE_0810), "11/G Line: Stop closed for sidewalk work");
+		assert.equal(await b.nextBroadcast(TUE_0810), null);
+	});
+	it("posts nothing when switched off, or when alerts can't be reached", async () => {
+		fresh();
+		process.env.ALERT_POSTS = "off";
+		assert.equal(await b.nextBroadcast(TUE_0810), null);
+		delete process.env.ALERT_POSTS;
+		rt.clearRealtimeCache();
+		globalThis.fetch = (async () => {
+			throw new TypeError("fetch failed");
+		}) as unknown as typeof fetch;
+		assert.equal(await b.nextBroadcast(TUE_0810), null);
+	});
+});

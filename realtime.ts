@@ -177,6 +177,11 @@ export type Alert = {
 		description_text?: TranslatedString;
 		active_period?: { start?: number; end?: number }[];
 		informed_entity?: { agency_id?: string; route_id?: string; stop_id?: string; trip?: any }[];
+		// GTFS-RT severity_level (newer feeds) and King County's extensions
+		severity_level?: string;
+		severity?: number;
+		created_timestamp?: number;
+		last_modified_timestamp?: number;
 	};
 };
 

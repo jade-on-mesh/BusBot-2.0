@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-BusBot ride alarms for meshcore-bot.
+BusBot ride alarms and quiet-channel alert posts for meshcore-bot.
 
 BusBot (in API mode) decides when a rider's `watch` or `commute` alarm is
 due and queues the DM. This service collects those DMs from BusBot's API
 every few seconds and sends them with meshcore-bot's own send_dm.
+
+It also watches the BusBot channel: after `quiet_minutes` with no traffic
+it asks BusBot for one active service alert and posts it there. BusBot
+picks the alert, skips repeats for 24 h, and stays silent overnight.
 
 Install: copy into meshcore-bot's local/service_plugins/ folder, then add to
 local/config.ini and restart meshcore-bot:
@@ -13,11 +17,15 @@ local/config.ini and restart meshcore-bot:
     enabled = true
     # url = http://127.0.0.1:8787
     # interval = 20
+    # alert_posts = true
+    # channel = #transit
+    # quiet_minutes = 60
 """
 
 import asyncio
 import json
 import logging
+import time
 import urllib.request
 
 from modules.service_plugins.base_service import BaseServicePlugin
@@ -61,13 +69,24 @@ class BusBotAlarmsService(BaseServicePlugin):
     def __init__(self, bot):
         super().__init__(bot)
         cfg = bot.config
-        base = cfg.get(self.config_section, "url", fallback="http://127.0.0.1:8787") if cfg.has_section(self.config_section) else "http://127.0.0.1:8787"
-        self.url = base.rstrip("/") + "/outbox/claim"
+        sec = self.config_section
+        get = lambda key, default: cfg.get(sec, key, fallback=default) if cfg.has_section(sec) else default
+        self.base = str(get("url", "http://127.0.0.1:8787")).rstrip("/")
+        self.url = self.base + "/outbox/claim"
         try:
-            self.interval = max(5, cfg.getint(self.config_section, "interval", fallback=20))
+            self.interval = max(5, int(get("interval", 20)))
         except Exception:
             self.interval = 20
+        self.alert_posts = str(get("alert_posts", "true")).strip().lower() not in ("0", "false", "off", "no")
+        self.channel = str(get("channel", "#transit")).strip()
+        try:
+            self.quiet_minutes = max(10, int(get("quiet_minutes", 60)))
+        except Exception:
+            self.quiet_minutes = 60
         self._task = None
+        self._started = time.time()
+        self._last_post = 0.0
+        self._last_check = 0.0
 
     async def start(self) -> None:
         self._running = True
@@ -84,10 +103,34 @@ class BusBotAlarmsService(BaseServicePlugin):
                 pass
         log.info("BusBot alarms service stopped")
 
+    def _post_json(self, path: str) -> dict:
+        req = urllib.request.Request(
+            self.base + path, data=b"{}", headers={"Content-Type": "application/json"}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+
     def _claim(self) -> list:
-        req = urllib.request.Request(self.url, data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode()).get("messages", [])
+        return self._post_json("/outbox/claim").get("messages", [])
+
+    async def _maybe_post_alert(self) -> None:
+        """After quiet_minutes with no traffic on the channel, post one alert."""
+        if not self.alert_posts:
+            return
+        now = time.time()
+        activity = getattr(self.bot, "_busbot_channel_activity", {}) or {}
+        key = self.channel.lower()
+        last = max(activity.get(key, 0), self._started, self._last_post)
+        if now - last < self.quiet_minutes * 60 or now - self._last_check < 300:
+            return
+        self._last_check = now
+        text = (await asyncio.to_thread(self._post_json, "/broadcast/next")).get("text")
+        if not text:
+            return
+        if await self.bot.command_manager.send_channel_message(self.channel, text, skip_user_rate_limit=True):
+            self._last_post = now
+            activity[key] = now
+            log.info(f"Posted transit alert to {self.channel}")
 
     async def _deliver(self, dm: dict) -> None:
         cm = self.bot.command_manager
@@ -119,4 +162,8 @@ class BusBotAlarmsService(BaseServicePlugin):
                 except Exception as e:
                     log.warning(f"BusBot alarm delivery failed: {e}")
                 await asyncio.sleep(1.5)
+            try:
+                await self._maybe_post_alert()
+            except Exception as e:
+                log.debug(f"BusBot alert post skipped: {e}")
             await asyncio.sleep(self.interval)

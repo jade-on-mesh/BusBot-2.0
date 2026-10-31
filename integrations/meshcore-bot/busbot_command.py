@@ -91,6 +91,14 @@ class BusBotCommand(BaseCommand):
     def matches_keyword(self, message: MeshMessage) -> bool:
         # First word only, so chatter like "busy" or "alerts are annoying" in
         # a channel only triggers when it's actually "alerts [stop]".
+        # Note every message in a channel (command or not), so the alarms
+        # service knows when the channel has gone quiet.
+        if message.channel and not message.is_dm:
+            activity = getattr(self.bot, "_busbot_channel_activity", None)
+            if activity is None:
+                activity = {}
+                setattr(self.bot, "_busbot_channel_activity", activity)
+            activity[message.channel.lower().strip()] = time.time()
         words = self.cleanup_message_for_matching(message).split()
         if not words:
             return False

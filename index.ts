@@ -1,6 +1,7 @@
 import { Constants, NodeJSSerialConnection } from "@liamcottle/meshcore.js";
 import { info } from "./commands";
 import { OutgoingDm, startAlarms } from "./alarms";
+import { broadcastsEnabled, nextBroadcast, quietMinutes } from "./broadcast";
 import { agencyName, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { countQuery, divideReply, handleCommand } from "./router";
 import {
@@ -91,9 +92,14 @@ const getBotChannelIdx = async () => {
 	return botChannelIdx;
 };
 
+// Last time anyone (including the bot) said anything on the bot channel.
+// Starts at boot so a restart doesn't trigger an immediate alert post.
+let lastChannelActivity = Date.now();
+
 const sendToChannel = async (text: string) => {
 	const idx = await getBotChannelIdx();
 	if (idx === undefined) return;
+	lastChannelActivity = Date.now();
 	await sendReplies(divideReply(text), (p) => connection.sendChannelTextMessage(idx, p), "channel send");
 };
 
@@ -234,6 +240,7 @@ const handleContactMessage = async (message: any) => {
 const handleChannelMessage = async (message: any) => {
 	const idx = await getBotChannelIdx();
 	if (idx === undefined || message.channelIdx !== idx) return;
+	lastChannelActivity = Date.now();
 
 	// Channel text is "Sender Name: message"
 	const text: string = message.text ?? "";
@@ -280,6 +287,22 @@ const deliverAlarm = async (dm: OutgoingDm) =>
 		"alarm DM",
 	);
 
+// Quiet-channel alert posts: after an hour of silence, share one active alert.
+let alertPostTimer: NodeJS.Timeout | undefined;
+const startAlertPosts = () => {
+	if (alertPostTimer || !broadcastsEnabled()) return;
+	alertPostTimer = setInterval(async () => {
+		try {
+			if (Date.now() - lastChannelActivity < quietMinutes() * 60_000) return;
+			const text = await nextBroadcast();
+			if (text) await sendToChannel(text);
+		} catch (e) {
+			console.error("Alert post failed:", e);
+		}
+	}, 5 * 60_000);
+	alertPostTimer.unref();
+};
+
 connection.on("connected", async () => {
 	console.log("Connected");
 	try {
@@ -291,6 +314,7 @@ connection.on("connected", async () => {
 		await syncContactsToStore();
 		await drainMessages(); // anything that arrived while we were offline
 		startAlarms(deliverAlarm);
+		startAlertPosts();
 		await checkToAdvertAndInfo();
 	} catch (e) {
 		console.error("Error during startup:", e);

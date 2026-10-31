@@ -39,6 +39,9 @@ To stay polite on the mesh: 3 watches and 2 commutes per rider, watches end afte
 
 With meshcore-bot, alarms are sent by `integrations/meshcore-bot/busbot_alarms_service.py`: copy it into meshcore-bot's `local/service_plugins/` and add `[BusBot_Alarms]` with `enabled = true` to `local/config.ini`.
 
+## Alert posts on a quiet channel
+When the bot's channel has had no traffic for an hour and there are active service alerts, BusBot posts one: the most severe, then the newest, never the same one twice within 24 hours. Its own post counts as traffic, so that's at most one an hour, and none overnight (10 pm to 6 am by default). Settings: `ALERT_POSTS`, `ALERT_QUIET_MINUTES`, `ALERT_QUIET_HOURS` in `.env` (standalone), or `alert_posts`, `channel`, `quiet_minutes` under `[BusBot_Alarms]` (meshcore-bot; quiet hours still come from BusBot's `.env`).
+
 ## Outage mode
 BusBot is built to keep answering when the internet doesn't. Schedules for every agency live on the Pi, so `bus`, `stops` (cross streets) and favorites keep working with no connection at all.
 
