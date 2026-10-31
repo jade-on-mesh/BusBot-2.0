@@ -29,7 +29,7 @@ import {
 import { commute, unwatch, watch } from "./alarms";
 import { NO_STOP } from "./commands/bus";
 import { go, helpGo } from "./planner";
-import { helpPins, isPinLine, notePin, pinsCommand, pinsOn, withPinLines, withPins } from "./pins";
+import { channelGeoOn, geoLine, helpPins, isPinLine, notePin, pinsCommand, pinsOn, withPinLines, withPins } from "./pins";
 import { parseStopArgs, Place, resolveStop } from "./gtfs";
 import { isAdmin } from "./store";
 
@@ -62,6 +62,8 @@ export const handleCommand = async (
 	// Stops the reply mentions go out as map pins after it: always for
 	// "pin", and in DMs for riders who turned pins on.
 	const sendPins = command === "pin" || (ctx.isDM && pinsOn(ctx.pubKey));
+	// In a channel, where the stop is, for map apps' Watch tabs.
+	if (!sendPins && !ctx.isDM && result && pins.length && channelGeoOn()) return `${result}\n${geoLine(pins[0])}`;
 	if (!sendPins || !pins.length) return result || undefined;
 	return result ? withPinLines(result, pins) : withPinLines("", pins).replace(/^\n/, "");
 };

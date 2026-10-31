@@ -14,6 +14,7 @@ process.env.LANGUAGE_CODE = "en";
 process.env.ADMIN_KEYS = "aabbccddeeff";
 process.env.OBA_API_KEY = "";
 process.env.EMOJI = "off"; // most tests check plain text; emoji tests switch it on
+process.env.CHANNEL_GEO = "off"; // the #transit position line has its own test
 
 const t = (iso: string) => new Date(iso).valueOf();
 // Tue 27 Oct 2026, 08:10 Pacific (PDT, UTC-7)
@@ -784,6 +785,7 @@ describe("typos", () => {
 		assert.equal(correctWord("pine"), "pine");
 		assert.equal(correctQuery("Akai Beach"), "alki beach");
 		assert.equal(correctQuery("pine 4th"), undefined);
+		assert.equal(correctQuery("Seattle Centre"), "seattle center");
 	});
 	it("finds stops by name despite a typo, offline", async () => {
 		process.env.GEOCODE = "off";
@@ -791,6 +793,19 @@ describe("typos", () => {
 		assert.match((await handleCommand("stops braodway pine", { isDM: false }))!, /^broadway pine:\n11040 /);
 		// no address lookup: drop "beach" and use the stop names
 		assert.match((await handleCommand("stops akai beach", { isDM: false }))!, /^alki:\n1700 Alki Ave SW/);
+	});
+	it("looks up British spellings the US way", async () => {
+		process.env.GEOCODE = "on";
+		const asked: string[] = [];
+		globalThis.fetch = (async (u: string) => {
+			const q = new URL(String(u)).searchParams.get("q")!;
+			asked.push(q);
+			return new Response(q === "seattle center" ? JSON.stringify([{ lat: "47.6205", lon: "-122.3193", name: "Seattle Center" }]) : "[]");
+		}) as typeof fetch;
+		const reply = (await handleCommand("stops seattle centre", { isDM: false }))!;
+		assert.deepEqual(asked, ["seattle centre", "seattle center"]);
+		assert.match(reply, /^Near Seattle Center:\n11050 /);
+		process.env.GEOCODE = "off";
 	});
 	it("retries the address lookup with the typo fixed", async () => {
 		process.env.GEOCODE = "on";
@@ -804,5 +819,23 @@ describe("typos", () => {
 		assert.deepEqual(asked, ["akai beach", "alki beach"]);
 		assert.match(reply, /^Near Alki Beach Park:\n1700 Alki Ave SW & 61st Ave SW · /);
 		process.env.GEOCODE = "off";
+	});
+});
+
+describe("#transit position line", () => {
+	before(() => (process.env.CHANNEL_GEO = "on"));
+	after(() => (process.env.CHANNEL_GEO = "off"));
+	it("ends channel replies about a stop with its position and number", async () => {
+		assert.match((await handleCommand("alerts ct 1120", { isDM: false }))!, /\n47\.97500,-122\.19700 · ct 1120$/);
+		process.env.EMOJI = "on";
+		try {
+			assert.match((await handleCommand("stops pine broadway", { isDM: false }))!, /\n📍 47\.61000,-122\.32000 · 11040$/);
+		} finally {
+			process.env.EMOJI = "off";
+		}
+	});
+	it("leaves it out of DMs and of replies about no stop", async () => {
+		assert.doesNotMatch((await handleCommand("alerts 1120", { isDM: true }))!, /·\s1120$/);
+		assert.doesNotMatch((await handleCommand("help", { isDM: false }))!, /47\./);
 	});
 });

@@ -21,7 +21,7 @@ export const PIN_FLAGS = "bus"; // shows as the pin's type; ≤8 bytes for Wadam
 const MAX_LABEL_BYTES = 32; // Wadamesh keeps 32 bytes of a label
 export const MAX_PINS = 3; // per reply: each one is another message on the mesh
 
-type Pin = { lat: number; lon: number; label: string };
+type Pin = { lat: number; lon: number; label: string; ref: string };
 const scope = new AsyncLocalStorage<Pin[]>();
 
 const bytes = (s: string) => Buffer.byteLength(s, "utf8");
@@ -53,7 +53,7 @@ export const notePin = (stop: Stop, label?: string) => {
 	if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return;
 	const text = label ?? `${stopRef(stop)} ${stop.stop_name}`;
 	if (pins.some((p) => p.label === text)) return;
-	pins.push({ lat, lon, label: text });
+	pins.push({ lat, lon, label: text, ref: stopRef(stop) });
 };
 
 // Runs a command, collecting the pins it notes.
@@ -67,6 +67,16 @@ export const withPins = async <T>(run: () => Promise<T>): Promise<{ result: T; p
 // send each as a separate message.
 export const withPinLines = (reply: string, pins: Pin[]) =>
 	pins.length ? [reply, ...pins.slice(0, MAX_PINS).map(formatPin)].join("\n") : reply;
+
+// ---------- #transit position line ----------
+//
+// A channel reply about a stop ends with "📍 47.60970,-122.33830 · 1120":
+// where the stop is and its number. People can paste it into a map; the
+// Watch tab in MeshCore Open TAK and Wadamesh TAK uses it to put the reply
+// on the map and to build its transit card (the format is in README.md).
+// CHANNEL_GEO=off leaves it out.
+export const channelGeoOn = () => !/^(0|false|off|no)$/i.test((process.env.CHANNEL_GEO ?? "").trim());
+export const geoLine = (p: Pin) => em("📍", `${p.lat.toFixed(5)},${p.lon.toFixed(5)} · ${p.ref}`);
 
 // ---------- per-rider setting ----------
 

@@ -26,6 +26,12 @@ const ABBREVIATIONS: Record<string, string> = {
 	first: "1st", second: "2nd", third: "3rd", fourth: "4th", fifth: "5th", sixth: "6th",
 	seventh: "7th", eighth: "8th", ninth: "9th", tenth: "10th", mlk: "martin",
 };
+// British and other spellings of words in US stop and place names.
+const SPELLINGS: Record<string, string> = {
+	centre: "center", centres: "centers", theatre: "theater", theatres: "theaters", harbour: "harbor",
+	neighbourhood: "neighborhood", metre: "meter", centrum: "center", ctr: "center", stn: "station",
+	univ: "university", uw: "university",
+};
 const IGNORED = new Set(["and", "at", "the", "of", "near", "by", "on"]);
 
 const tokens = (s: string) =>
@@ -34,6 +40,7 @@ const tokens = (s: string) =>
 		.replace(/['’.]/g, "")
 		.split(/[^a-z0-9]+/)
 		.filter(Boolean)
+		.map((t) => SPELLINGS[t] ?? t)
 		.map((t) => ABBREVIATIONS[t] ?? t);
 
 // A query word matches a name word if equal, a prefix of it ("pin" ~ "pine"),
@@ -75,7 +82,7 @@ const PLACE_WORDS =
 	"beach park market station terminal ferry dock pier airport university college school hospital center centre " +
 	"mall library stadium field arena zoo museum garden gardens lake bay island point tower plaza square " +
 	"downtown waterfront transit hub junction landing harbor marina trail bridge church hall court courthouse " +
-	"high middle elementary campus clinic medical theater theatre north south east west";
+	"high middle elementary campus clinic medical theater north south east west";
 
 let vocab: Map<string, number> | undefined;
 const getVocab = () => {
@@ -139,9 +146,11 @@ export const correctWord = (word: string): string => {
 
 // The query with each unknown word corrected, or undefined if nothing changed.
 export const correctQuery = (query: string): string | undefined => {
-	const words = tokens(query);
-	const fixed = words.map(correctWord);
-	return fixed.some((w, i) => w !== words[i]) ? fixed.join(" ") : undefined;
+	const fixed = tokens(query).map(correctWord).join(" ");
+	// Compared with the words as typed, so a spelling fix ("centre" ->
+	// "center") counts as a change and gets its own address lookup.
+	const typed = query.toLowerCase().replace(/['’.]/g, "").split(/[^a-z0-9]+/).filter(Boolean).join(" ");
+	return fixed !== typed ? fixed : undefined;
 };
 
 // Name search that retries with typos corrected. [query] is what matched.
