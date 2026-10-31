@@ -26,6 +26,6 @@ export const routeEmoji = (route?: Pick<Route, "route_short_name" | "route_type"
 		case "4":
 			return "⛴️";
 		default:
-			return /^[A-Z] Line$/i.test(shortName) ? "🔴" : "🚌";
+			return /^[A-Z] Line$/i.test(shortName) ? "🚍" : "🚌";
 	}
 };

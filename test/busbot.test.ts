@@ -253,10 +253,10 @@ describe("OneBusAway (issue #1)", () => {
 describe("emoji", () => {
 	before(() => (process.env.EMOJI = "on"));
 	after(() => (process.env.EMOJI = "off"));
-	it("decorates arrivals: stop pin, RapidRide red dot, bus, clock for scheduled", async () => {
+	it("decorates arrivals: stop pin, RapidRide oncoming bus, bus, clock for scheduled", async () => {
 		assert.equal(
 			await busStop("1120", TUE_0810),
-			"🚏 3rd Ave & Pike St, Bay 2\n🔴 G Line - 3 mins 🕒\n🚌 11 - 5 mins",
+			"🚏 3rd Ave & Pike St, Bay 2\n🚍 G Line - 3 mins 🕒\n🚌 11 - 5 mins",
 		);
 		assert.equal(await busStop("999999", TUE_0810), "❓ No stop found with that id.");
 	});
