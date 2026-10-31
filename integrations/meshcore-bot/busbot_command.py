@@ -15,6 +15,9 @@ Optional settings in local/config.ini:
     channels = #transit
     url = http://127.0.0.1:8787/command
     timeout = 15
+    # where meshcore-bot keeps contact positions (for picking the nearest
+    # agency when stop numbers collide); blank disables position lookups
+    db_path = /var/lib/meshcore-bot/meshcore_bot.db
     # word riders type = word BusBot understands. Rename a word here if it
     # collides with another meshcore-bot command. "alerts" belongs to
     # meshcore-bot's own alert command, so riders type "busalerts [stop]".
@@ -26,6 +29,8 @@ Optional settings in local/config.ini:
 import asyncio
 import json
 import logging
+import sqlite3
+import time
 import urllib.error
 import urllib.request
 
@@ -64,6 +69,9 @@ class BusBotCommand(BaseCommand):
         self.busbot_enabled = self.get_config_value(SECTION, "enabled", fallback=True, value_type="bool")
         self.url = self.get_config_value(SECTION, "url", fallback="http://127.0.0.1:8787/command")
         self.timeout = float(self.get_config_value(SECTION, "timeout", fallback="15"))
+        default_db = getattr(getattr(bot, "db_manager", None), "db_path", None) or "/var/lib/meshcore-bot/meshcore_bot.db"
+        self.db_path = str(self.get_config_value(SECTION, "db_path", fallback=default_db) or "").strip()
+        self._places = {}  # cache key -> (fetched_at, (lat, lon) or None)
         raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, stops=stops, fav=fav, bushelp=help")
         self.word_map = {}
         for pair in str(raw).split(","):
@@ -111,6 +119,43 @@ class BusBotCommand(BaseCommand):
         if self._in_own_channel(message):
             say["help"] = "help"
         return say
+
+    def _lookup_place(self, message: MeshMessage):
+        """The rider's last advertised position from meshcore-bot's contact
+        tracking: by public key in DMs, by name in channels (newest match).
+        Returns (lat, lon) or None. Never raises."""
+        if not self.db_path:
+            return None
+        key = (message.sender_pubkey or "").strip().lower()
+        name = (message.sender_id or "").strip()
+        if not key and not name:
+            return None
+        cache_key = f"k:{key}" if key else f"n:{name}"
+        hit = self._places.get(cache_key)
+        if hit and time.time() - hit[0] < 300:
+            return hit[1]
+        place = None
+        try:
+            conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=2)
+            try:
+                where, arg = ("lower(public_key) LIKE ?", key + "%") if key else ("name = ?", name)
+                row = conn.execute(
+                    "SELECT latitude, longitude FROM complete_contact_tracking "
+                    f"WHERE {where} AND latitude IS NOT NULL AND longitude IS NOT NULL "
+                    "AND NOT (latitude = 0 AND longitude = 0) "
+                    "ORDER BY last_heard DESC LIMIT 1",
+                    (arg,),
+                ).fetchone()
+            finally:
+                conn.close()
+            if row and abs(row[0]) <= 90 and abs(row[1]) <= 180:
+                place = (float(row[0]), float(row[1]))
+        except Exception as e:  # missing db, locked, schema change: just no position
+            log.debug(f"BusBot position lookup failed: {e}")
+        self._places[cache_key] = (time.time(), place)
+        if len(self._places) > 2000:
+            self._places.pop(next(iter(self._places)))
+        return place
 
     def _post(self, payload: dict) -> dict:
         req = urllib.request.Request(
@@ -167,6 +212,9 @@ class BusBotCommand(BaseCommand):
             "pubKey": message.sender_pubkey,
             "words": self._words_for(message),
         }
+        place = await asyncio.to_thread(self._lookup_place, message)
+        if place:
+            payload["lat"], payload["lon"] = place
         try:
             data = await asyncio.to_thread(self._post, payload)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
