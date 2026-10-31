@@ -3,7 +3,7 @@ BusBot provides information about King County Metro buses and routes over MeshCo
 
 ## Getting Started
 1. `npm install` (needs Node 20+ and the `unzip` command)
-2. `npm run feeds` downloads and converts the schedule for every agency in `feeds.json`. Run it again weekly, or whenever the bot warns that a feed is expiring. `npm run feeds -- kcm st` refreshes just those.
+2. `npm run feeds` downloads and converts the schedule for every agency in `feeds.json`. `npm run feeds -- kcm st` refreshes just those. Agencies replace their schedules every few months, so set up the weekly refresh in `integrations/systemd/` (`busbot-feeds.timer`), which re-downloads and restarts BusBot automatically.
 3. Copy `.env.example` to `.env` and fill it in. At minimum: `SERIAL_PORT`, `NODE_NAME`, `BOT_CHANNEL`.
 4. Add the bot channel (e.g. `#transit`) on the companion radio, then `npm start`.
 

@@ -1,0 +1,14 @@
+# Weekly schedule refresh. Agencies publish new schedules weeks before the old
+# ones expire, so weekly always catches them. Persistent: runs at next boot if
+# the machine was off at the scheduled time.
+#   sudo cp integrations/systemd/busbot-feeds.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now busbot-feeds.timer
+[Unit]
+Description=Weekly BusBot schedule refresh
+
+[Timer]
+OnCalendar=Mon *-*-* 03:47
+Persistent=true
+
+[Install]
+WantedBy=timers.target
