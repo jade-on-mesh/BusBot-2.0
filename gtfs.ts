@@ -22,7 +22,12 @@ const load = (name: string, required = true): Record<string, string>[] => {
 };
 
 export type Stop = { stop_id: string; stop_code?: string; stop_name: string };
-export type Route = { route_id: string; route_short_name: string; route_long_name?: string };
+export type Route = {
+	route_id: string;
+	route_short_name: string;
+	route_long_name?: string;
+	route_type?: string;
+};
 export type Trip = { trip_id: string; route_id: string; service_id: string; trip_headsign?: string };
 export type StopTime = { trip_id: string; arrivalSec: number; stop_sequence: number };
 

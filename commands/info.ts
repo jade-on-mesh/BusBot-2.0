@@ -1,3 +1,5 @@
+import { em } from "../style";
+
 export const info = () => {
-  return "Transit scheduling, geographic, and real-time data provided by permission of King County.";
+  return em("ℹ️", "Transit scheduling, geographic, and real-time data provided by permission of King County.");
 };

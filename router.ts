@@ -91,18 +91,20 @@ export const handleCommand = async (
 };
 
 // Splits a reply into evenly sized parts on word boundaries.
+// Limits are UTF-8 bytes, because that's what the radio counts: an emoji is
+// one character on screen but 4 bytes on the air.
 // 150 (max channel message) - 32 (max name) - 3 (": " etc.)
 export const MAX_LENGTH = 115;
-export const divideReply = (message: string, maxLength = MAX_LENGTH) => {
-	let messageCount = 1;
-	let targetLength = message.length;
-	while (targetLength > maxLength) {
-		messageCount++;
-		targetLength = Math.ceil(message.length / messageCount);
-	}
-	if (messageCount === 1) return [message];
+const bytes = (s: string) => Buffer.byteLength(s, "utf8");
+
+export const divideReply = (message: string, maxBytes = MAX_LENGTH) => {
+	const total = bytes(message);
+	if (total <= maxBytes) return [message];
+	let parts = Math.ceil(total / maxBytes);
+	let target = Math.ceil(total / parts);
 
 	const segmenter = new Intl.Segmenter(process.env.LANGUAGE_CODE ?? "en", { granularity: "word" });
+	const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 	const replies: string[] = [];
 	let current = "";
 	const push = () => {
@@ -110,20 +112,16 @@ export const divideReply = (message: string, maxLength = MAX_LENGTH) => {
 		current = "";
 	};
 	for (const { segment } of segmenter.segment(message)) {
-		if (current.length && current.length + segment.length > targetLength) push();
-		// Hard-split any single segment that's longer than the limit.
-		let seg = segment;
-		while (seg.length > maxLength) {
-			push();
-			replies.push(seg.slice(0, maxLength));
-			seg = seg.slice(maxLength);
+		if (current && bytes(current) + bytes(segment) > target) push();
+		if (bytes(segment) <= maxBytes) {
+			current += segment;
+			continue;
 		}
-		current += seg;
-		if (current.length > maxLength) {
-			const overflow = current.slice(maxLength);
-			current = current.slice(0, maxLength);
-			push();
-			current = overflow;
+		// A single "word" longer than the limit: split between characters,
+		// never inside an emoji.
+		for (const { segment: g } of graphemes.segment(segment)) {
+			if (bytes(current) + bytes(g) > maxBytes) push();
+			current += g;
 		}
 	}
 	push();

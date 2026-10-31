@@ -15,6 +15,7 @@ import {
 	User,
 	users,
 } from "./store";
+import { em } from "./style";
 import { parseGtfsDate } from "./time";
 
 // ---------- config ----------
@@ -111,8 +112,8 @@ const checkToAdvertAndInfo = async () => {
 	if (end && now > end.valueOf() - FEED_WARNING_MS) {
 		const expired = now > end.valueOf() + 24 * 60 * 60 * 1000;
 		const msg = expired
-			? "Schedule data has expired. Times marked (s) may be wrong until the feed is updated."
-			: "Schedule data expires soon. The bot operator needs to update the GTFS feed.";
+			? em("⚠️", "Schedule data has expired. Scheduled times may be wrong until the feed is updated.")
+			: em("⚠️", "Schedule data expires soon. The bot operator needs to update the GTFS feed.");
 		console.warn(msg, feedInfo?.feed_end_date);
 		await sendToChannel(msg);
 	}

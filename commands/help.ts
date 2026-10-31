@@ -1,3 +1,5 @@
+import { emojiOn } from "../style";
+
 // help
 export const help = (isDM = false) => {
 	return `Commands:\n• alerts\n• bus${isDM ? "\n• fav" : ""}\n• info\n---\n• beats\n• stats`;
@@ -15,7 +17,7 @@ export const helpBeats = () => {
 
 // help bus
 export const helpBus = () => {
-	return "Use bus [stop] or bus [stop] [route] for arrivals. (s) = scheduled, no live data. Ex:\nbus 11040\nbus 1120 11\nbus 120 G Line\nbus 1651 First Hill Streetcar";
+	return `Use bus [stop] or bus [stop] [route] for arrivals. ${emojiOn() ? "🕒" : "(s)"} = scheduled, no live data. Ex:\nbus 11040\nbus 1120 11\nbus 120 G Line\nbus 1651 First Hill Streetcar`;
 };
 
 // help fav

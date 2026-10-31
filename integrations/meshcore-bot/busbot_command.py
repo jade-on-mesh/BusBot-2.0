@@ -97,28 +97,38 @@ class BusBotCommand(BaseCommand):
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             return json.loads(resp.read().decode())
 
+    @staticmethod
+    def _bytes(s: str) -> int:
+        return len(s.encode("utf-8"))
+
     def _split(self, text: str, limit: int) -> list:
-        """Split on line breaks to fit the mesh message limit, hard-splitting long lines."""
+        """Split on line breaks to fit the mesh message limit, counted in UTF-8
+        bytes (an emoji is 4 bytes on the air). Long lines break at spaces."""
         chunks, current = [], ""
         for line in text.split("\n"):
-            while len(line) > limit:
+            while self._bytes(line) > limit:
                 if current:
                     chunks.append(current)
                     current = ""
-                cut = line.rfind(" ", 0, limit + 1)
-                if cut <= 0:
-                    cut = limit
+                # longest prefix that fits, preferring to break at a space
+                cut = len(line)
+                while cut > 0 and self._bytes(line[:cut]) > limit:
+                    cut -= 1
+                space = line.rfind(" ", 0, cut + 1)
+                if space > 0:
+                    cut = space
+                cut = max(cut, 1)
                 chunks.append(line[:cut].rstrip())
                 line = line[cut:].lstrip()
             candidate = f"{current}\n{line}" if current else line
-            if len(candidate) > limit:
+            if self._bytes(candidate) > limit:
                 chunks.append(current)
                 current = line
             else:
                 current = candidate
         if current:
             chunks.append(current)
-        return chunks
+        return [c for c in chunks if c]
 
     async def execute(self, message: MeshMessage) -> bool:
         words = self.cleanup_message_for_matching(message).split()

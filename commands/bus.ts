@@ -1,5 +1,6 @@
 import { findRoute, findStop, isServiceActive, Route, routesById, shortName, Stop, stopTimesByStop, tripsById } from "../gtfs";
 import { getObaArrivals, getTripUpdates, obaEnabled, StopTimeUpdate, TripUpdate } from "../realtime";
+import { em, routeEmoji, scheduledMark } from "../style";
 import { prettyTime, serviceDays } from "../time";
 
 export type Arrival = {
@@ -106,31 +107,38 @@ export const getArrivals = async (stop: Stop, route?: Route, nowMs = Date.now())
 };
 
 const formatArrival = (nowMs: number, a: Arrival) =>
-	`${prettyTime(nowMs, a.epochMs)}${a.realtime ? "" : " (s)"}`;
+	`${prettyTime(nowMs, a.epochMs)}${a.realtime ? "" : scheduledMark()}`;
+
+const NO_TRIPS = () => em("😴", "No upcoming trips.");
+const NO_STOP = () => em("❓", "No stop found with that id.");
+const NO_ROUTE = () => em("❓", "No route found with that id.");
 
 export const busStop = async (stopId: string, nowMs = Date.now()) => {
 	const stop = findStop(stopId);
-	if (!stop) return "No stop found with that id.";
+	if (!stop) return NO_STOP();
 
 	const arrivals = await getArrivals(stop, undefined, nowMs);
 	const nextByRoute = new Map<string, Arrival>();
 	for (const a of arrivals) if (!nextByRoute.has(a.routeName)) nextByRoute.set(a.routeName, a);
 
-	let reply = stop.stop_name;
-	if (!nextByRoute.size) return `${reply}\nNo upcoming trips.`;
-	for (const a of nextByRoute.values()) reply += `\n${a.routeName} - ${formatArrival(nowMs, a)}`;
+	let reply = em("🚏", stop.stop_name);
+	if (!nextByRoute.size) return `${reply}\n${NO_TRIPS()}`;
+	for (const a of nextByRoute.values()) {
+		const icon = routeEmoji(routesById.get(a.routeId), a.routeName);
+		reply += `\n${em(icon, `${a.routeName} - ${formatArrival(nowMs, a)}`)}`;
+	}
 	return reply;
 };
 
 export const busStopAndRoute = async (stopId: string, routeId: string, nowMs = Date.now()) => {
 	const stop = findStop(stopId);
-	if (!stop) return "No stop found with that id.";
+	if (!stop) return NO_STOP();
 	const route = findRoute(routeId, stop.stop_id);
-	if (!route) return "No route found with that id.";
+	if (!route) return NO_ROUTE();
 
 	const arrivals = (await getArrivals(stop, route, nowMs)).slice(0, 5);
-	let reply = `${stop.stop_name} - ${shortName(route)}`;
-	if (!arrivals.length) return `${reply}\nNo upcoming trips.`;
+	let reply = em(routeEmoji(route), `${shortName(route)} @ ${stop.stop_name}`);
+	if (!arrivals.length) return `${reply}\n${NO_TRIPS()}`;
 	for (const a of arrivals) reply += `\n${formatArrival(nowMs, a)}`;
 	return reply;
 };

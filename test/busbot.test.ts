@@ -13,6 +13,7 @@ process.env.METRO_GTFS_RT_SERVICE_ALERTS_FEED = "https://example.test/alerts.jso
 process.env.LANGUAGE_CODE = "en";
 process.env.ADMIN_KEYS = "aabbccddeeff";
 process.env.OBA_API_KEY = "";
+process.env.EMOJI = "off"; // most tests check plain text; emoji tests switch it on
 
 const t = (iso: string) => new Date(iso).valueOf();
 // Tue 27 Oct 2026, 08:10 Pacific (PDT, UTC-7)
@@ -104,11 +105,11 @@ describe("bus", () => {
 	it("lists upcoming trips for one route", async () => {
 		assert.equal(
 			await busStopAndRoute("1120", "11", TUE_0810),
-			"3rd Ave & Pike St, Bay 2 - 11\n5 mins\n10 mins (s)",
+			"11 @ 3rd Ave & Pike St, Bay 2\n5 mins\n10 mins (s)",
 		);
 	});
 	it("finds routes by multi-word name", async () => {
-		assert.match(await busStopAndRoute("1120", "g line", TUE_0810), /G Line\n3 mins \(s\)/);
+		assert.match(await busStopAndRoute("1120", "g line", TUE_0810), /G Line @ 3rd Ave & Pike St, Bay 2\n3 mins \(s\)/);
 	});
 	it("includes after-midnight trips from yesterday's service (24:40:00)", async () => {
 		assert.equal(await busStop("1120", TUE_0030), "3rd Ave & Pike St, Bay 2\n11 - 10 mins (s)");
@@ -132,7 +133,7 @@ describe("alerts", () => {
 	it("includes the stop header when filtering by route", async () => {
 		assert.equal(
 			await alertsStopAndRoute("1120", "g line", TUE_0810),
-			"3rd Ave & Pike St, Bay 2 - G Line\nNo alerts.",
+			"G Line @ 3rd Ave & Pike St, Bay 2\nNo alerts.",
 		);
 	});
 });
@@ -245,6 +246,31 @@ describe("OneBusAway (issue #1)", () => {
 			if (String(url).includes("onebusaway")) return new Response("nope", { status: 503 });
 			return realFetch(url);
 		}) as typeof fetch;
-		assert.equal(await busStopAndRoute("11040", "11", TUE_0810 - 25 * 60_000), "Broadway & E Pine St - 11\n20 mins");
+		assert.equal(await busStopAndRoute("11040", "11", TUE_0810 - 25 * 60_000), "11 @ Broadway & E Pine St\n20 mins");
+	});
+});
+
+describe("emoji", () => {
+	before(() => (process.env.EMOJI = "on"));
+	after(() => (process.env.EMOJI = "off"));
+	it("decorates arrivals: stop pin, RapidRide red dot, bus, clock for scheduled", async () => {
+		assert.equal(
+			await busStop("1120", TUE_0810),
+			"🚏 3rd Ave & Pike St, Bay 2\n🔴 G Line - 3 mins 🕒\n🚌 11 - 5 mins",
+		);
+		assert.equal(await busStop("999999", TUE_0810), "❓ No stop found with that id.");
+	});
+	it("decorates alerts and the all-clear", async () => {
+		assert.equal(await alertsStop("1120", TUE_0810), "🚏 3rd Ave & Pike St, Bay 2\n⚠️ Ruta 11 desviada");
+		assert.match(await alertsStopAndRoute("1120", "g line", TUE_0810), /✅ No alerts\.$/);
+	});
+	it("keeps every split part within the byte limit and never splits an emoji", () => {
+		const reply = Array.from({ length: 12 }, (_, i) => `🚌 Route ${i} - ${i} mins 🕒`).join("\n");
+		const parts = divideReply(reply);
+		assert.ok(parts.length > 1);
+		for (const p of parts) assert.ok(Buffer.byteLength(p) <= 115, `${Buffer.byteLength(p)} bytes: ${p}`);
+		assert.equal(parts.join(" ").replace(/\s+/g, " "), reply.replace(/\s+/g, " "));
+		const emojiWall = "🚌".repeat(60);
+		for (const p of divideReply(emojiWall)) assert.match(p, /^(🚌)+$/u);
 	});
 });

@@ -1,5 +1,9 @@
 import { findRoute, findStop, routesByStop, Route, shortName, Stop } from "../gtfs";
 import { Alert, getAlerts, getObaArrivals, obaEnabled, translate } from "../realtime";
+import { em } from "../style";
+
+const body = (texts: string[]) =>
+	texts.length ? texts.map((t) => em("⚠️", t)).join("\n") : em("✅", "No alerts.");
 
 const isActive = (alert: Alert, nowMs: number) => {
 	const periods = alert.alert.active_period ?? [];
@@ -49,16 +53,16 @@ const getStopAlerts = async (stop: Stop, route?: Route, nowMs = Date.now()) => {
 
 export const alertsStop = async (stopId: string, nowMs = Date.now()) => {
 	const stop = findStop(stopId);
-	if (!stop) return "No stop found with that id.";
+	if (!stop) return em("❓", "No stop found with that id.");
 	const texts = await getStopAlerts(stop, undefined, nowMs);
-	return `${stop.stop_name}\n${texts.length ? texts.join("\n") : "No alerts."}`;
+	return `${em("🚏", stop.stop_name)}\n${body(texts)}`;
 };
 
 export const alertsStopAndRoute = async (stopId: string, routeId: string, nowMs = Date.now()) => {
 	const stop = findStop(stopId);
-	if (!stop) return "No stop found with that id.";
+	if (!stop) return em("❓", "No stop found with that id.");
 	const route = findRoute(routeId, stop.stop_id);
-	if (!route) return "No route found with that id.";
+	if (!route) return em("❓", "No route found with that id.");
 	const texts = await getStopAlerts(stop, route, nowMs);
-	return `${stop.stop_name} - ${shortName(route)}\n${texts.length ? texts.join("\n") : "No alerts."}`;
+	return `${em("🚏", `${shortName(route)} @ ${stop.stop_name}`)}\n${body(texts)}`;
 };
