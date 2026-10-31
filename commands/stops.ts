@@ -173,3 +173,23 @@ export const helpStops = (say?: Record<string, string>) => {
 	const s = say?.stops ?? "stops";
 	return `${em("🔎", "Find stop numbers. Ex:")}\n${s} pine 4th\n${s} 1100 broadway\n${s} pike place market`;
 };
+
+// "near": the stops closest to where the rider's radio last advertised.
+// Bare "near" is DM-only: answering in a channel would tell everyone where
+// the rider is. "near [place]" reveals nothing about them and works anywhere.
+export const near = async (args: string[], ctx: { isDM: boolean; near?: { lat: number; lon: number }; say?: Record<string, string> }) => {
+	if (args.length) return stops(args.join(" "));
+	const word = ctx.say?.near ?? "near";
+	if (!ctx.isDM) return em("📍", `DM me "${word}" for stops near you, so your location stays out of the channel.`);
+	if (!ctx.near) {
+		return em("📍", `No position in your adverts yet. Turn on location sharing in your radio's settings, or try: ${ctx.say?.stops ?? "stops"} pine 4th`);
+	}
+	const found = nearestStops(ctx.near.lat, ctx.near.lon);
+	if (!found.length) return em("📍", "No stops with service within 2 miles of your last advert.");
+	return [em("📍", "Near you:"), ...found.map(({ stop, meters }) => stopLine(stop, formatDistance(meters)))].join("\n");
+};
+
+export const helpNear = (say?: Record<string, string>) => {
+	const n = say?.near ?? "near";
+	return `${em("📍", "Stops closest to your radio (DM):")}\n${n}\n${n} [place] works anywhere:\n${n} pike place market`;
+};

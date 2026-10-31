@@ -21,7 +21,7 @@ Optional settings in local/config.ini:
     # word riders type = word BusBot understands. Rename a word here if it
     # collides with another meshcore-bot command. "alerts" belongs to
     # meshcore-bot's own alert command, so riders type "busalerts [stop]".
-    keywords = bus=bus, busalerts=alerts, stops=stops, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute
+    keywords = bus=bus, busalerts=alerts, stops=stops, near=near, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute
     # "help" in a BusBot-only channel (see channels above) also shows BusBot's
     # help, since meshcore-bot's own help doesn't answer there.
 """
@@ -45,7 +45,7 @@ class BusBotCommand(BaseCommand):
     """King County Metro arrivals, alerts and favorite stops via BusBot."""
 
     name = "busbot"
-    keywords = ["bus", "busalerts", "stops", "fav", "bushelp", "help", "watch", "unwatch", "commute"]
+    keywords = ["bus", "busalerts", "stops", "near", "fav", "bushelp", "help", "watch", "unwatch", "commute"]
     description = (
         "King County Metro arrivals and alerts. 'bus [stop]', 'bus [stop] [route]', "
         "'busalerts [stop]', 'stops [cross streets or address]'. In DMs: 'fav add [stop]', 'fav'."
@@ -72,7 +72,7 @@ class BusBotCommand(BaseCommand):
         default_db = getattr(getattr(bot, "db_manager", None), "db_path", None) or "/var/lib/meshcore-bot/meshcore_bot.db"
         self.db_path = str(self.get_config_value(SECTION, "db_path", fallback=default_db) or "").strip()
         self._places = {}  # cache key -> (fetched_at, (lat, lon) or None)
-        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, stops=stops, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute")
+        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, stops=stops, near=near, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute")
         self.word_map = {}
         for pair in str(raw).split(","):
             if "=" in pair:

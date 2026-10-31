@@ -20,6 +20,9 @@ Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. W
 | `bus [stop]` | channel, DM | Next arrival for each route at a stop |
 | `bus [stop] [route]` | channel, DM | Next 5 arrivals for one route (`bus 1120 11`, `bus 120 G Line`) |
 | `alerts [stop]` / `alerts [stop] [route]` | channel, DM | Active service alerts |
+| `stops [cross streets or address]` | channel, DM | Find stop numbers (`stops pine 4th`, `stops 1100 broadway`) |
+| `near` | DM | The 3 stops closest to your radio's advertised position. In a channel it asks you to DM instead, so your location isn't broadcast. `near [place]` works anywhere |
+| `watch [stop] [route]` / `commute [time] [stop] [route]` | DM | Ride alarms (see below) |
 | `fav add [stop]` / `fav rm [stop]` / `fav list` | DM | Save up to 5 favorite stops |
 | `fav` | DM | Arrivals for all your favorite stops |
 | `info`, `stats`, `beats`, `ping`, `help` | channel, DM | |

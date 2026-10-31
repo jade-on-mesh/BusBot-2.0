@@ -317,9 +317,9 @@ describe("stops search", () => {
 describe("help", () => {
 	it("lists commands standalone, with fav only in DMs", async () => {
 		const ch = (await handleCommand("help", { isDM: false }))!;
-		assert.match(ch, /^Transit:\nbus \[stop\] \[route\]\nstops \[streets\/address\]\nalerts \[stop\]\ninfo stats beats\nhelp \[cmd\] = examples$/);
+		assert.match(ch, /^Transit:\nbus \[stop\] \[route\]\nstops \[place\]\nalerts \[stop\]\nnear \(DM me\)\ninfo stats beats\nhelp \[cmd\] = examples$/);
 		assert.doesNotMatch(ch, /fav/);
-		assert.match((await handleCommand("help", { isDM: true }))!, /\nfav · watch · commute\n/);
+		assert.match((await handleCommand("help", { isDM: true }))!, /\nnear · fav · watch · commute\n/);
 	});
 	it("uses the words riders type under meshcore-bot, and accepts them as topics", async () => {
 		const say = { bus: "bus", alerts: "busalerts", stops: "stops", fav: "fav", help: "bushelp" };
@@ -656,5 +656,27 @@ describe("quiet-channel alert posts", () => {
 			throw new TypeError("fetch failed");
 		}) as unknown as typeof fetch;
 		assert.equal(await b.nextBroadcast(TUE_0810), null);
+	});
+});
+
+describe("near", () => {
+	const DOWNTOWN = { lat: 47.6005, lon: -122.3005 };
+	it("lists the closest stops to the rider's advert, in DMs", async () => {
+		assert.equal(
+			await handleCommand("near", { isDM: true, near: DOWNTOWN }),
+			"Near you:\n1120 3rd Ave & Pike St, Bay 2 · 200 ft → 11, G Line\n11040 Broadway & E Pine St · 1.1 mi → 11",
+		);
+	});
+	it("won't reveal where someone is in a channel", async () => {
+		assert.equal(
+			await handleCommand("near", { isDM: false, near: DOWNTOWN }),
+			'DM me "near" for stops near you, so your location stays out of the channel.',
+		);
+	});
+	it("explains what to do without a position", async () => {
+		assert.match((await handleCommand("near", { isDM: true }))!, /^No position in your adverts yet\./);
+	});
+	it("near [place] is a stop search and works anywhere", async () => {
+		assert.match((await handleCommand("near pike 3rd", { isDM: false }))!, /^pike 3rd:\n1120 3rd Ave/);
 	});
 });
