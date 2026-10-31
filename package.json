@@ -10,7 +10,8 @@
 		"start": "tsx --env-file=.env index.ts",
 		"setup": "tsx scripts/convert_txt.ts",
 		"typecheck": "tsc --noEmit",
-		"test": "tsx --test test/*.test.ts"
+		"test": "tsx --test test/*.test.ts",
+		"serve": "tsx --env-file=.env server.ts"
 	},
 	"dependencies": {
 		"@liamcottle/meshcore.js": "^1.8.0"
