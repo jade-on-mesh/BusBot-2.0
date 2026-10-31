@@ -22,6 +22,7 @@ import {
 	stops,
 	helpStops,
 } from "./commands";
+import { parseStopArgs, Place } from "./gtfs";
 import { isAdmin } from "./store";
 
 export type CommandContext = {
@@ -31,6 +32,9 @@ export type CommandContext = {
 	// Words riders type for each command (canonical -> typed), sent by the
 	// meshcore-bot plugin so help shows e.g. "busalerts" instead of "alerts".
 	say?: Record<string, string>;
+	// Where the rider is (from their advert), to pick between agencies that
+	// share a stop number.
+	near?: Place;
 };
 
 let validQueryCount = 0;
@@ -67,17 +71,22 @@ export const handleCommand = async (
 			case "bus":
 			case "alerts": {
 				if (!args.length) return command === "bus" ? helpBus(ctx.say) : helpAlerts(ctx.say);
-				const [stopId, ...routeWords] = args;
-				const routeId = routeWords.join(" ");
-				if (command === "bus") return routeId ? busStopAndRoute(stopId, routeId) : busStop(stopId);
-				return routeId ? alertsStopAndRoute(stopId, routeId) : alertsStop(stopId);
+				// optional agency code first: "bus ct 1120 201"
+				const { agency, stop, rest } = parseStopArgs(args);
+				if (!stop) return command === "bus" ? helpBus(ctx.say) : helpAlerts(ctx.say);
+				const routeName = rest.join(" ");
+				const opts = { agency, near: ctx.near };
+				if (command === "bus") {
+					return routeName ? busStopAndRoute(stop, routeName, Date.now(), opts) : busStop(stop, Date.now(), opts);
+				}
+				return routeName ? alertsStopAndRoute(stop, routeName, Date.now(), opts) : alertsStop(stop, Date.now(), opts);
 			}
 			case "stops":
 				return args.length ? stops(args.join(" ")) : helpStops(ctx.say);
 			case "fav":
 			case "favs":
 			case "favorites":
-				return ctx.isDM ? fav(ctx.pubKey, args) : undefined;
+				return ctx.isDM ? fav(ctx.pubKey, args, ctx.near) : undefined;
 			case "block":
 			case "unblock":
 			case "blocklist":

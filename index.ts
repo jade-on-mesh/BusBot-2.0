@@ -1,6 +1,6 @@
 import { Constants, NodeJSSerialConnection } from "@liamcottle/meshcore.js";
 import { info } from "./commands";
-import { feedInfo, loadGtfs } from "./gtfs";
+import { agencyName, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { countQuery, divideReply, handleCommand } from "./router";
 import {
 	findUserByPrefix,
@@ -13,6 +13,7 @@ import {
 	state,
 	toHex,
 	User,
+	userPlace,
 	users,
 } from "./store";
 import { em } from "./style";
@@ -108,13 +109,15 @@ const checkToAdvertAndInfo = async () => {
 	await sleep(5000);
 	await sendToChannel(info());
 
-	const end = feedInfo?.feed_end_date ? parseGtfsDate(feedInfo.feed_end_date) : undefined;
-	if (end && now > end.valueOf() - FEED_WARNING_MS) {
+	const soonest = soonestFeedEnd();
+	const end = soonest ? parseGtfsDate(soonest.end) : undefined;
+	if (soonest && end && now > end.valueOf() - FEED_WARNING_MS) {
+		const who = agencyName(soonest.agency);
 		const expired = now > end.valueOf() + 24 * 60 * 60 * 1000;
 		const msg = expired
-			? em("⚠️", "Schedule data has expired. Scheduled times may be wrong until the feed is updated.")
-			: em("⚠️", "Schedule data expires soon. The bot operator needs to update the GTFS feed.");
-		console.warn(msg, feedInfo?.feed_end_date);
+			? em("⚠️", `${who} schedule data has expired. Times may be wrong until the operator runs npm run feeds.`)
+			: em("⚠️", `${who} schedule data expires soon. The operator needs to run npm run feeds.`);
+		console.warn(msg, soonest.end);
 		await sendToChannel(msg);
 	}
 };
@@ -217,7 +220,7 @@ const handleContactMessage = async (message: any) => {
 		saveUsers();
 	}
 
-	const reply = await handleCommand(message.text, { isDM: true, pubKey, name });
+	const reply = await handleCommand(message.text, { isDM: true, pubKey, name, near: pubKey ? userPlace(pubKey) : undefined });
 	if (!reply) return;
 	countQuery();
 	await sendReplies(

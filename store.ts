@@ -87,6 +87,19 @@ export const findUserByPrefix = (prefix: Uint8Array | string) => {
 
 export const MAX_FAVORITES = 5;
 
+// A usable lat/lon, or undefined. 0,0 means "no position" in MeshCore adverts.
+export const validPlace = (lat?: unknown, lon?: unknown) => {
+	if (typeof lat !== "number" || typeof lon !== "number" || !isFinite(lat) || !isFinite(lon)) return undefined;
+	if ((lat === 0 && lon === 0) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return undefined;
+	return { lat, lon };
+};
+
+// Adverts carry position as integer microdegrees.
+export const userPlace = (pubKey: string) => {
+	const u = users.get(pubKey) ?? findUserByPrefix(pubKey);
+	return u ? validPlace(u.advLat / 1e6, u.advLon / 1e6) : undefined;
+};
+
 // ---------- blocklist (issue #2) ----------
 
 type Blocklist = { names: string[]; keys: string[] };

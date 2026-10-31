@@ -11,8 +11,9 @@ package-lock.json
 # database
 /db
 
-# metro data
+# transit data
 /metro
+/data
 
 # misc
 .DS_Store

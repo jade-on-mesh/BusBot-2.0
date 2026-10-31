@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_type
+CT201,29,201,Smokey Point - Lynnwood,3
+CTSWB,29,Swift Blue,Swift Blue Line,3

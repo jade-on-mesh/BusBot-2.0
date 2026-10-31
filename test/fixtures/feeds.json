@@ -1,0 +1,17 @@
+{
+	"feeds": [
+		{
+			"id": "kcm",
+			"name": "King County Metro",
+			"codes": ["kcm", "metro"],
+			"default": true,
+			"dir": ".",
+			"oba": "1",
+			"tripUpdates": { "url": "https://example.test/trips.json", "format": "json" },
+			"alerts": { "url": "https://example.test/alerts.json", "format": "json" },
+			"credit": "King County Metro (by permission)"
+		},
+		{ "id": "ct", "name": "Community Transit", "codes": ["ct", "swift"], "dir": "ct", "oba": "29" },
+		{ "id": "nodata", "name": "Not Downloaded", "codes": ["nd"], "dir": "nowhere" }
+	]
+}

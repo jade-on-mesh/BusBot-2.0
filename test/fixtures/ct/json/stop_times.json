@@ -1,0 +1,5 @@
+[
+{"trip_id":"C1","arrival_time":"08:16:00","departure_time":"08:16:00","stop_id":"1120","stop_sequence":"1"},
+{"trip_id":"C1","arrival_time":"08:22:00","departure_time":"08:22:00","stop_id":"5000","stop_sequence":"2"},
+{"trip_id":"C2","arrival_time":"08:30:00","departure_time":"08:30:00","stop_id":"1120","stop_sequence":"1"}
+]

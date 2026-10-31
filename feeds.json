@@ -1,0 +1,72 @@
+{
+	"_comment": "Transit agencies BusBot loads. Static GTFS URLs are from Sound Transit's open data page. 'codes' are what riders type to pick an agency (bus ct 1120). 'oba' is the OneBusAway Puget Sound agency id, used for live data once OBA_API_KEY is set. A feed is only loaded once 'npm run feeds' has downloaded it.",
+	"feeds": [
+		{
+			"id": "kcm",
+			"name": "King County Metro",
+			"codes": ["kcm", "metro", "km"],
+			"default": true,
+			"url": "https://metro.kingcounty.gov/GTFS/google_transit.zip",
+			"oba": "1",
+			"tripUpdates": { "url": "https://s3.amazonaws.com/kcm-alerts-realtime-prod/tripupdates_enhanced.json", "format": "json" },
+			"alerts": { "url": "https://s3.amazonaws.com/kcm-alerts-realtime-prod/alerts_enhanced.json", "format": "json" },
+			"credit": "King County Metro (by permission)"
+		},
+		{
+			"id": "st",
+			"name": "Sound Transit",
+			"codes": ["st", "link", "sounder"],
+			"url": "https://www.soundtransit.org/GTFS-rail/40_gtfs.zip",
+			"oba": "40"
+		},
+		{
+			"id": "ct",
+			"name": "Community Transit",
+			"codes": ["ct", "swift"],
+			"url": "https://www.communitytransit.org/docs/default-source/open-data/gtfs/current.zip",
+			"oba": "29"
+		},
+		{
+			"id": "pt",
+			"name": "Pierce Transit",
+			"codes": ["pt", "pierce"],
+			"url": "https://www.soundtransit.org/GTFS-PT/gtfs.zip",
+			"oba": "3"
+		},
+		{
+			"id": "et",
+			"name": "Everett Transit",
+			"codes": ["et", "everett"],
+			"url": "http://everett.prod.mapstrat.com/current/google_transit.zip",
+			"oba": "97"
+		},
+		{
+			"id": "it",
+			"name": "Intercity Transit",
+			"codes": ["it", "intercity"],
+			"url": "https://its.rideralerts.com/InfoPoint/gtfs-zip.ashx",
+			"oba": "19"
+		},
+		{
+			"id": "kt",
+			"name": "Kitsap Transit",
+			"codes": ["kt", "kitsap"],
+			"url": "https://pride.kitsaptransit.com/gtfs/google_transit.zip",
+			"tripUpdates": { "url": "https://kttracker.com/gtfsrt/trips", "format": "pb" }
+		},
+		{
+			"id": "wsf",
+			"name": "WA State Ferries",
+			"codes": ["wsf", "ferry", "ferries"],
+			"url": "https://business.wsdot.wa.gov/Transit/csv_files/wsf/google_transit.zip",
+			"oba": "95"
+		},
+		{
+			"id": "mono",
+			"name": "Seattle Center Monorail",
+			"codes": ["mono", "monorail"],
+			"url": "https://raw.githubusercontent.com/Seattle-Monorail-Services/gtfs/main/96_gtfs.zip",
+			"oba": "96"
+		}
+	]
+}

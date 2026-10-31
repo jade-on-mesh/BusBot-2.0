@@ -11,10 +11,12 @@
 		"setup": "tsx scripts/convert_txt.ts",
 		"typecheck": "tsc --noEmit",
 		"test": "tsx --test test/*.test.ts",
-		"serve": "tsx --env-file=.env server.ts"
+		"serve": "tsx --env-file=.env server.ts",
+		"feeds": "tsx scripts/update_feeds.ts"
 	},
 	"dependencies": {
-		"@liamcottle/meshcore.js": "^1.8.0"
+		"@liamcottle/meshcore.js": "^1.8.0",
+		"gtfs-realtime-bindings": "^2.2.0"
 	},
 	"devDependencies": {
 		"@types/node": "^24.9.0",

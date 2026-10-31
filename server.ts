@@ -8,9 +8,9 @@
 //
 // Listens on 127.0.0.1 only. Start with: npm run serve
 import { createServer, IncomingMessage } from "node:http";
-import { feedInfo, loadGtfs } from "./gtfs";
+import { feeds, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { countQuery, divideReply, handleCommand } from "./router";
-import { flushUsers, isBlocked, saveUsers, toHex, users } from "./store";
+import { flushUsers, isBlocked, saveUsers, toHex, userPlace, users, validPlace } from "./store";
 
 const HOST = process.env.BUSBOT_HOST || "127.0.0.1";
 const PORT = parseInt(process.env.BUSBOT_PORT || "8787");
@@ -68,16 +68,25 @@ const server = createServer(async (req, res) => {
 	};
 	try {
 		if (req.method === "GET" && req.url === "/health") {
-			return send(200, { ok: true, feedEndDate: feedInfo?.feed_end_date ?? null, users: users.size });
+			const soonest = soonestFeedEnd();
+			return send(200, {
+				ok: true,
+				agencies: [...feeds.keys()],
+				feedEndDate: soonest?.end ?? null,
+				feedEndAgency: soonest?.agency ?? null,
+				users: users.size,
+			});
 		}
 		if (req.method !== "POST" || req.url !== "/command") return send(404, { error: "not found" });
 
-		const { text, isDM = false, name, pubKey, words } = JSON.parse(await readBody(req)) as {
+		const { text, isDM = false, name, pubKey, words, lat, lon } = JSON.parse(await readBody(req)) as {
 			text?: string;
 			isDM?: boolean;
 			name?: string;
 			pubKey?: string;
 			words?: Record<string, string>;
+			lat?: number;
+			lon?: number;
 		};
 		// canonical command -> the word riders type through the caller (for help text)
 		const say =
@@ -92,7 +101,9 @@ const server = createServer(async (req, res) => {
 		if (isBlocked({ name, pubKey: key })) return send(200, { reply: null, parts: [], blocked: true });
 		if (isDM && key) ensureUser(key, name);
 
-		const reply = await handleCommand(text, { isDM: Boolean(isDM), pubKey: key, name, say });
+		// Rider position: sent by the caller, else the last one we stored for them.
+		const near = validPlace(lat, lon) ?? (key ? userPlace(key) : undefined);
+		const reply = await handleCommand(text, { isDM: Boolean(isDM), pubKey: key, name, say, near });
 		if (!reply) return send(200, { reply: null, parts: [] });
 		countQuery();
 		return send(200, { reply, parts: divideReply(reply) });

@@ -53,7 +53,7 @@ export const parseCsvLine = (line: string): string[] | null => {
 	return fields;
 };
 
-const convertFile = async (fileName: string) => {
+const convertFile = async (fileName: string, outputFolder: string, quiet = false) => {
 	const base = path.basename(fileName);
 	const outName = path.join(outputFolder, base.replace(/\.txt$/, ".json"));
 	const rl = readline.createInterface({
@@ -96,27 +96,31 @@ const convertFile = async (fileName: string) => {
 	}
 	out.write("\n]\n");
 	await new Promise((resolve) => out.end(resolve));
-	console.log(`${base}: ${count} rows${skipped ? ` (${skipped} malformed rows skipped)` : ""}`);
+	if (!quiet) console.log(`${base}: ${count} rows${skipped ? ` (${skipped} malformed rows skipped)` : ""}`);
+	return { file: base, rows: count, skipped };
 };
 
-const main = async () => {
-	if (!fs.existsSync(inputFolder)) {
-		throw new Error(`Input files not found! Extract the GTFS zip into ${inputFolder}`);
-	}
-	fs.mkdirSync(outputFolder, { recursive: true });
+// Converts every GTFS .txt in input to JSON in output.
+export const convertFolder = async (input: string, output: string, quiet = false) => {
+	if (!fs.existsSync(input)) throw new Error(`Input files not found in ${input}`);
+	fs.mkdirSync(output, { recursive: true });
 	const files = fs
-		.readdirSync(inputFolder)
+		.readdirSync(input)
 		.filter((f) => f.endsWith(".txt") && !SKIP_FILES.has(f))
-		.map((f) => path.join(inputFolder, f))
+		.map((f) => path.join(input, f))
 		.filter((f) => fs.lstatSync(f).isFile());
+	const results = [];
 	for (const f of files) {
 		try {
-			await convertFile(f);
+			results.push(await convertFile(f, output, quiet));
 		} catch (err) {
 			console.error(`Failed converting ${f}:`, err);
 		}
 	}
+	return results;
 };
+
+const main = () => convertFolder(inputFolder, outputFolder);
 
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
 	main().catch((e) => {

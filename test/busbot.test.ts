@@ -6,7 +6,7 @@ import path from "node:path";
 
 // Env must be set before the modules load.
 const dbDir = mkdtempSync(path.join(tmpdir(), "busbot-db-"));
-process.env.GTFS_JSON_DIR = path.join(import.meta.dirname, "fixtures/json");
+process.env.FEEDS_FILE = path.join(import.meta.dirname, "fixtures/feeds.json");
 process.env.DB_DIR = dbDir;
 process.env.METRO_GTFS_RT_TRIP_UPDATES_FEED = "https://example.test/trips.json";
 process.env.METRO_GTFS_RT_SERVICE_ALERTS_FEED = "https://example.test/alerts.json";
@@ -80,7 +80,7 @@ describe("CSV conversion", () => {
 		assert.equal(parseCsvLine('1,"open'), null);
 	});
 	it("kept the stop whose name contains a comma (and stripped the BOM)", () => {
-		assert.equal(gtfs.findStop("1120")?.stop_name, "3rd Ave & Pike St, Bay 2");
+		assert.equal(gtfs.resolveStop("1120")?.stop.stop_name, "3rd Ave & Pike St, Bay 2");
 	});
 });
 
@@ -100,7 +100,7 @@ describe("time", () => {
 describe("bus", () => {
 	it("shows a late bus whose scheduled time has passed, and skips cancelled/inactive trips", async () => {
 		const reply = await busStop("1120", TUE_0810);
-		assert.equal(reply, "3rd Ave & Pike St, Bay 2\nG Line - 3 mins (s)\n11 - 5 mins");
+		assert.equal(reply, "3rd Ave & Pike St, Bay 2\nG Line - 3 mins (s)\n11 - 5 mins\nalso: ct 1120");
 	});
 	it("lists upcoming trips for one route", async () => {
 		assert.equal(
@@ -112,12 +112,12 @@ describe("bus", () => {
 		assert.match(await busStopAndRoute("1120", "g line", TUE_0810), /G Line @ 3rd Ave & Pike St, Bay 2\n3 mins \(s\)/);
 	});
 	it("includes after-midnight trips from yesterday's service (24:40:00)", async () => {
-		assert.equal(await busStop("1120", TUE_0030), "3rd Ave & Pike St, Bay 2\n11 - 10 mins (s)");
+		assert.equal(await busStop("1120", TUE_0030), "3rd Ave & Pike St, Bay 2\n11 - 10 mins (s)\nalso: ct 1120");
 	});
 	it("honors calendar_dates holiday exceptions", async () => {
 		assert.equal(
 			await busStop("1120", THANKSGIVING_0810),
-			"3rd Ave & Pike St, Bay 2\n11 - 4 mins (s)",
+			"3rd Ave & Pike St, Bay 2\n11 - 4 mins (s)\nalso: ct 1120",
 		);
 	});
 	it("handles unknown stops and routes", async () => {
@@ -128,7 +128,7 @@ describe("bus", () => {
 
 describe("alerts", () => {
 	it("matches route-wide alerts, falls back to another language, drops expired alerts", async () => {
-		assert.equal(await alertsStop("1120", TUE_0810), "3rd Ave & Pike St, Bay 2\nRuta 11 desviada");
+		assert.equal(await alertsStop("1120", TUE_0810), "3rd Ave & Pike St, Bay 2\nRuta 11 desviada\nalso: ct 1120");
 	});
 	it("includes the stop header when filtering by route", async () => {
 		assert.equal(
@@ -236,9 +236,9 @@ describe("OneBusAway (issue #1)", () => {
 				}),
 			);
 		}) as typeof fetch;
-		assert.equal(await busStop("1120", TUE_0810), "3rd Ave & Pike St, Bay 2\nG Line - 2 mins (s)\n11 - 7 mins");
+		assert.equal(await busStop("1120", TUE_0810), "3rd Ave & Pike St, Bay 2\nG Line - 2 mins (s)\n11 - 7 mins\nalso: ct 1120");
 		assert.match(requested, /arrivals-and-departures-for-stop\/1_1120\.json\?key=test-key/);
-		assert.equal(await alertsStop("1120", TUE_0810), "3rd Ave & Pike St, Bay 2\nElevator out at Pike");
+		assert.equal(await alertsStop("1120", TUE_0810), "3rd Ave & Pike St, Bay 2\nElevator out at Pike\nalso: ct 1120");
 	});
 	it("falls back to GTFS when OBA fails", async () => {
 		process.env.OBA_API_KEY = "test-key";
@@ -256,12 +256,12 @@ describe("emoji", () => {
 	it("decorates arrivals: stop pin, RapidRide oncoming bus, bus, clock for scheduled", async () => {
 		assert.equal(
 			await busStop("1120", TUE_0810),
-			"🚏 3rd Ave & Pike St, Bay 2\n🚍 G Line - 3 mins 🕒\n🚌 11 - 5 mins",
+			"🚏 3rd Ave & Pike St, Bay 2\n🚍 G Line - 3 mins 🕒\n🚌 11 - 5 mins\nalso: ct 1120",
 		);
 		assert.equal(await busStop("999999", TUE_0810), "❓ No stop found with that id.");
 	});
 	it("decorates alerts and the all-clear", async () => {
-		assert.equal(await alertsStop("1120", TUE_0810), "🚏 3rd Ave & Pike St, Bay 2\n⚠️ Ruta 11 desviada");
+		assert.equal(await alertsStop("1120", TUE_0810), "🚏 3rd Ave & Pike St, Bay 2\n⚠️ Ruta 11 desviada\nalso: ct 1120");
 		assert.match(await alertsStopAndRoute("1120", "g line", TUE_0810), /✅ No alerts\.$/);
 	});
 	it("keeps every split part within the byte limit and never splits an emoji", () => {
@@ -310,7 +310,7 @@ describe("stops search", () => {
 	it("says so when the place isn't in King County", async () => {
 		process.env.GEOCODE = "on";
 		globalThis.fetch = (async () => new Response("[]")) as unknown as typeof fetch;
-		assert.match((await handleCommand("stops zzzz nowhere", { isDM: false }))!, /Couldn't find that in King County/);
+		assert.match((await handleCommand("stops zzzz nowhere", { isDM: false }))!, /Couldn't find that around Puget Sound/);
 	});
 });
 
@@ -329,5 +329,73 @@ describe("help", () => {
 		assert.doesNotMatch(h, /info stats/);
 		assert.match((await handleCommand("help busalerts", { isDM: false, say }))!, /\nbusalerts 1120 11\n/);
 		assert.match((await handleCommand("stops", { isDM: false, say }))!, /stops pine 4th/);
+	});
+});
+
+describe("Cascadia: several agencies", () => {
+	const EVERETT = { lat: 47.976, lon: -122.198 };
+	const DOWNTOWN = { lat: 47.6, lon: -122.3 };
+	// the router reads the real clock; pin it to the fixture's Tuesday morning
+	const realNow = Date.now;
+	before(() => (Date.now = () => TUE_0810));
+	after(() => (Date.now = realNow));
+	it("skips feeds that haven't been downloaded", () => {
+		assert.deepEqual([...gtfs.feeds.keys()], ["kcm", "ct"]);
+	});
+	it("picks the stop nearest the rider when agencies share a number", async () => {
+		assert.equal(
+			await handleCommand("bus 1120", { isDM: false, near: EVERETT }),
+			"Everett Station Bay 3 · CT\n201 - 6 mins (s)\nSwift Blue - 20 mins (s)\nalso: 1120",
+		);
+		assert.match((await handleCommand("bus 1120", { isDM: false, near: DOWNTOWN }))!, /^3rd Ave & Pike St, Bay 2\n/);
+	});
+	it("falls back to Metro without a location, and an agency code overrides", async () => {
+		assert.match((await handleCommand("bus 1120", { isDM: false }))!, /^3rd Ave & Pike St, Bay 2\n.*\nalso: ct 1120$/s);
+		assert.match((await handleCommand("bus ct 1120", { isDM: false, near: DOWNTOWN }))!, /^Everett Station Bay 3 · CT\n/);
+		assert.match((await handleCommand("bus swift 1120", { isDM: false }))!, /^Everett Station Bay 3 · CT\n/);
+		assert.match((await handleCommand("bus ct 5000", { isDM: false }))!, /^Colby Ave & Pacific Ave · CT\n201 - 12 mins/);
+	});
+	it("uses the agency that actually runs the requested route", async () => {
+		assert.equal(await handleCommand("bus 1120 201", { isDM: false }), "201 @ Everett Station Bay 3 · CT\n6 mins (s)");
+		assert.match((await handleCommand("bus 1120 swift blue", { isDM: false }))!, /^Swift Blue @ Everett Station/);
+		assert.match((await handleCommand("bus 1120 11", { isDM: false, near: EVERETT }))!, /^11 @ 3rd Ave & Pike/);
+	});
+	it("shows other agencies' stops with their code in stop search", async () => {
+		assert.equal(
+			await handleCommand("stops everett station", { isDM: false }),
+			"everett station:\nct 1120 Everett Station Bay 3 → 201, Swift Blue",
+		);
+	});
+	it("saves favorites per agency, and reads old bare favorites as Metro", async () => {
+		const key = "dd".repeat(32);
+		store.users.set(key, { pubKey: key, advName: "Rider", favoriteStops: ["11040"], firstSeen: 0, lastSeen: 0, type: 1, flags: 0, outPathLen: -1, outPath: "", lastAdvert: 0, advLat: 0, advLon: 0 });
+		const dm = { isDM: true, pubKey: key };
+		assert.equal(await handleCommand("fav add ct 1120", dm), "Saved Everett Station Bay 3 (ct 1120).");
+		assert.equal(await handleCommand("fav list", dm), "Favorites:\n11040 Broadway & E Pine St\nct 1120 Everett Station Bay 3");
+		assert.deepEqual(store.users.get(key)!.favoriteStops, ["11040", "ct:1120"]);
+		assert.equal(await handleCommand("fav rm 1120", dm), "Removed ct 1120.");
+	});
+	it("credits every loaded agency", async () => {
+		assert.equal(await handleCommand("info", { isDM: false }), "Transit data: King County Metro (by permission), Community Transit.");
+	});
+	it("decodes protobuf GTFS-realtime and maps OneBusAway route ids to agencies", async () => {
+		const { transit_realtime: rt } = (await import("gtfs-realtime-bindings")).default;
+		const pb = rt.FeedMessage.encode(
+			rt.FeedMessage.create({
+				header: { gtfsRealtimeVersion: "2.0", timestamp: 1 },
+				entity: [{ id: "1", tripUpdate: { trip: { tripId: "C1" }, stopTimeUpdate: [{ stopSequence: 1, arrival: { delay: 300 } }] } }],
+			}),
+		).finish();
+		const realFetch = globalThis.fetch;
+		const { clearRealtimeCache } = await import("../realtime");
+		clearRealtimeCache();
+		gtfs.feeds.get("ct")!.tripUpdates = { url: "https://example.test/ct.pb", format: "pb" };
+		globalThis.fetch = (async () => new Response(pb)) as unknown as typeof fetch;
+		try {
+			assert.equal(await handleCommand("bus ct 1120 201", { isDM: false }), "201 @ Everett Station Bay 3 · CT\n11 mins");
+		} finally {
+			globalThis.fetch = realFetch;
+			delete gtfs.feeds.get("ct")!.tripUpdates;
+		}
 	});
 });

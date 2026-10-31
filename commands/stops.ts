@@ -4,12 +4,15 @@
 // 1. Cross streets: Metro names stops after their intersection
 //    ("Pine St & 4th Ave"), so a word match over stop names answers most
 //    questions instantly and offline.
-// 2. Anything else: geocode it (OpenStreetMap Nominatim, limited to King
-//    County) and return the closest stops by distance.
-import { routesById, routesByStop, shortName, Stop, stopsById } from "../gtfs";
+// 2. Anything else: geocode it (OpenStreetMap Nominatim, limited to the
+//    Puget Sound region) and return the closest stops by distance, across
+//    every loaded agency.
+import { metersBetween, routesByKey, routesByStop, shortName, Stop, stopRef, stopsByKey } from "../gtfs";
 import { em } from "../style";
 
 const MAX_RESULTS = 3;
+// "Nearest" stops further than this aren't useful answers to "stops near X".
+const MAX_NEAREST_METERS = 2 * 1609.34;
 const MAX_ROUTES_SHOWN = 4;
 
 // ---------- name search ----------
@@ -45,12 +48,9 @@ export const searchStopsByName = (query: string): Stop[] => {
 	const q = tokens(query).filter((t) => !IGNORED.has(t));
 	// Need at least one real word or number; "e" or "ne" alone matches half the county.
 	if (!q.some((t) => t.length >= 3 || /^\d+$/.test(t))) return [];
-	const seen = new Set<string>();
 	const hits: { stop: Stop; extra: number }[] = [];
-	for (const stop of stopsById.values()) {
-		if (seen.has(stop.stop_id)) continue; // stopsById also holds stop_code aliases
-		seen.add(stop.stop_id);
-		if (!routesByStop.has(stop.stop_id)) continue; // no service
+	for (const stop of stopsByKey.values()) {
+		if (!routesByStop.has(stop.key)) continue; // no service
 		const words = tokens(stop.stop_name);
 		if (q.every((t) => words.some((w) => wordMatches(t, w)))) {
 			hits.push({ stop, extra: words.length - q.length });
@@ -58,14 +58,15 @@ export const searchStopsByName = (query: string): Stop[] => {
 	}
 	// Tightest names first ("Pine St & 4th Ave" before "Pine St & 4th Ave - Bay 3"),
 	// then by number so results are stable.
-	hits.sort((a, b) => a.extra - b.extra || a.stop.stop_id.localeCompare(b.stop.stop_id, undefined, { numeric: true }));
+	hits.sort((a, b) => a.extra - b.extra || a.stop.key.localeCompare(b.stop.key, undefined, { numeric: true }));
 	return hits.map((h) => h.stop);
 };
 
 // ---------- geocoding ----------
 
-// Bounding box around King County: west, north, east, south.
-const KING_COUNTY_VIEWBOX = "-122.55,47.79,-121.06,47.08";
+// Bounding box around the Puget Sound region (Olympia to Everett, Kitsap to
+// the Cascades): west, north, east, south. GEOCODE_VIEWBOX overrides it.
+const REGION_VIEWBOX = process.env.GEOCODE_VIEWBOX || "-123.25,48.30,-121.30,46.85";
 const geocodeCache = new Map<string, { at: number; value: Geo | null }>();
 let lastGeocodeAt = 0;
 
@@ -90,7 +91,7 @@ export const geocode = async (query: string): Promise<Geo | null> => {
 		format: "jsonv2",
 		limit: "1",
 		countrycodes: "us",
-		viewbox: KING_COUNTY_VIEWBOX,
+		viewbox: REGION_VIEWBOX,
 		bounded: "1",
 	});
 	if (process.env.GEOCODER_EMAIL) params.set("email", process.env.GEOCODER_EMAIL);
@@ -108,24 +109,16 @@ export const geocode = async (query: string): Promise<Geo | null> => {
 	return value;
 };
 
-const metersBetween = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-	const rad = Math.PI / 180;
-	const dLat = (lat2 - lat1) * rad;
-	const dLon = (lon2 - lon1) * rad;
-	const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
-	return 6_371_000 * 2 * Math.asin(Math.sqrt(a));
-};
-
 export const nearestStops = (lat: number, lon: number, count = MAX_RESULTS) => {
-	const seen = new Set<string>();
 	const all: { stop: Stop; meters: number }[] = [];
-	for (const stop of stopsById.values()) {
-		if (seen.has(stop.stop_id)) continue;
-		seen.add(stop.stop_id);
-		if (!routesByStop.has(stop.stop_id) || !stop.stop_lat || !stop.stop_lon) continue;
+	for (const stop of stopsByKey.values()) {
+		if (!routesByStop.has(stop.key) || !stop.stop_lat || !stop.stop_lon) continue;
 		all.push({ stop, meters: metersBetween(lat, lon, parseFloat(stop.stop_lat), parseFloat(stop.stop_lon)) });
 	}
-	return all.sort((a, b) => a.meters - b.meters).slice(0, count);
+	return all
+		.filter((s) => s.meters <= MAX_NEAREST_METERS)
+		.sort((a, b) => a.meters - b.meters)
+		.slice(0, count);
 };
 
 // US riders: feet up close, miles further out.
@@ -137,16 +130,15 @@ const formatDistance = (meters: number) => {
 
 // ---------- output ----------
 
-const routeList = (stopId: string) => {
-	const names = [...(routesByStop.get(stopId) ?? [])]
-		.map((id) => shortName(routesById.get(id)))
+const routeList = (stopKey: string) => {
+	const names = [...new Set([...(routesByStop.get(stopKey) ?? [])].map((k) => shortName(routesByKey.get(k))))]
 		.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 	const shown = names.slice(0, MAX_ROUTES_SHOWN).join(", ");
 	return names.length > MAX_ROUTES_SHOWN ? `${shown} +${names.length - MAX_ROUTES_SHOWN}` : shown;
 };
 
 const stopLine = (stop: Stop, distance?: string) =>
-	em("🚏", `${stop.stop_id} ${stop.stop_name}${distance ? ` · ${distance}` : ""} → ${routeList(stop.stop_id)}`);
+	em("🚏", `${stopRef(stop)} ${stop.stop_name}${distance ? ` · ${distance}` : ""} → ${routeList(stop.key)}`);
 
 const shorten = (s: string, max = 32) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
@@ -168,9 +160,9 @@ export const stops = async (query: string) => {
 		console.log("Geocoding failed:", (e as Error).message);
 		return em("❓", "No stop names match, and address lookup is unavailable right now.");
 	}
-	if (!place) return em("❓", "Couldn't find that in King County. Try cross streets, e.g. stops pine 4th");
+	if (!place) return em("❓", "Couldn't find that around Puget Sound. Try cross streets, e.g. stops pine 4th");
 	const near = nearestStops(place.lat, place.lon);
-	if (!near.length) return em("❓", "No stops with service near there.");
+	if (!near.length) return em("❓", "No stops with service within 2 miles of there.");
 	return [
 		em("🔎", `Near ${shorten(place.label)}:`),
 		...near.map(({ stop, meters }) => stopLine(stop, formatDistance(meters))),

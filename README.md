@@ -1,12 +1,18 @@
 # BusBot
-BusBot provides information about King County Metro buses and routes over MeshCore. Transit scheduling, geographic, and real-time data provided by permission of King County.
+BusBot provides information about King County Metro buses and routes over MeshCore. Transit scheduling, geographic, and real-time data provided by permission of King County, and by the open data programs of the other agencies in `feeds.json`.
 
 ## Getting Started
-1. Download and extract the GTFS base data available from [King County Metro](https://kingcounty.gov/en/dept/metro/rider-tools/mobile-and-web-apps#toc-developer-resources) to the `metro/txt` folder.
-2. `npm install`
-3. `npm run setup` to convert the GTFS text files to JSON. Run this again whenever you download a new feed. The bot posts a warning in its channel when the feed is within 14 days of expiring.
-4. Copy `.env.example` to `.env` and fill it in. At minimum: `SERIAL_PORT`, `NODE_NAME`, `BOT_CHANNEL`, and the two GTFS-RT feed URLs.
-5. Add the bot channel (e.g. `#transit`) on the companion radio, then `npm start`.
+1. `npm install` (needs Node 20+ and the `unzip` command)
+2. `npm run feeds` downloads and converts the schedule for every agency in `feeds.json`. Run it again weekly, or whenever the bot warns that a feed is expiring. `npm run feeds -- kcm st` refreshes just those.
+3. Copy `.env.example` to `.env` and fill it in. At minimum: `SERIAL_PORT`, `NODE_NAME`, `BOT_CHANNEL`.
+4. Add the bot channel (e.g. `#transit`) on the companion radio, then `npm start`.
+
+## Agencies
+BusBot covers the Puget Sound region: King County Metro, Sound Transit (Link, Sounder, ST Express), Community Transit, Pierce Transit, Everett Transit, Intercity Transit, Kitsap Transit, Washington State Ferries and the Seattle Center Monorail. Add or remove agencies in `feeds.json`.
+
+Agencies reuse stop numbers, so when a rider sends `bus 1120` and several agencies have a stop 1120, BusBot answers for the one nearest the rider's advertised position (Metro if it doesn't know), and adds `also: ct 1120` so they can ask for the other. Riders can always name the agency: `bus ct 1120`, `bus st 99603`. A route also settles it: `bus 1120 201` answers from the agency that runs a 201 there.
+
+Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. Without a key, Metro (its own feed) and Kitsap Transit are live and the rest show scheduled times (🕒).
 
 ## Commands
 | Command | Where | What it does |
