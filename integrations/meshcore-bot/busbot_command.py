@@ -40,6 +40,34 @@ from modules.models import MeshMessage
 SECTION = "BusBot_Command"
 log = logging.getLogger("busbot_command")
 
+async def ensure_dm_contact(bot, pubkey, state: dict, log) -> None:
+    """meshcore-bot replies to DMs from its in-memory contact list
+    (bot.meshcore.contacts), which it only loads at startup. In bot-managed
+    contacts mode it adds new riders to the radio but doesn't refresh that
+    list, so its reply fails with "Contact not found for DM recipient".
+    If the rider is missing, reload the list the same way meshcore-bot does
+    at startup (at most once every 20 s)."""
+    mc = getattr(bot, "meshcore", None)
+    key = (pubkey or "").strip().lower()
+    if not mc or not key:
+        return
+    contacts = getattr(mc, "contacts", None) or {}
+    for c in contacts.values():
+        if (c.get("public_key") or "").lower().startswith(key):
+            return
+    now = time.time()
+    if now - state.get("last_refresh", 0) < 20:
+        return
+    state["last_refresh"] = now
+    try:
+        from meshcore_cli.meshcore_cli import next_cmd
+        await next_cmd(mc, ["contacts"])
+        log.info(f"Refreshed meshcore-bot's contact list for new DM sender {key[:12]}")
+    except Exception as e:
+        log.warning(f"Couldn't refresh contact list: {e}")
+
+_refresh_state: dict = {}
+
 
 class BusBotCommand(BaseCommand):
     """King County Metro arrivals, alerts and favorite stops via BusBot."""
@@ -232,6 +260,8 @@ class BusBotCommand(BaseCommand):
         reply = data.get("reply")
         if not reply:
             return False
+        if message.is_dm:
+            await ensure_dm_contact(self.bot, message.sender_pubkey, _refresh_state, log)
         limit = max(40, int(self.get_max_message_length(message)))
         chunks = self._split(reply, limit)
         if len(chunks) == 1:

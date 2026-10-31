@@ -33,6 +33,34 @@ from modules.service_plugins.base_service import BaseServicePlugin
 log = logging.getLogger("busbot_alarms")
 MAX_DM_BYTES = 140
 
+async def ensure_dm_contact(bot, pubkey, state: dict, log) -> None:
+    """meshcore-bot replies to DMs from its in-memory contact list
+    (bot.meshcore.contacts), which it only loads at startup. In bot-managed
+    contacts mode it adds new riders to the radio but doesn't refresh that
+    list, so its reply fails with "Contact not found for DM recipient".
+    If the rider is missing, reload the list the same way meshcore-bot does
+    at startup (at most once every 20 s)."""
+    mc = getattr(bot, "meshcore", None)
+    key = (pubkey or "").strip().lower()
+    if not mc or not key:
+        return
+    contacts = getattr(mc, "contacts", None) or {}
+    for c in contacts.values():
+        if (c.get("public_key") or "").lower().startswith(key):
+            return
+    now = time.time()
+    if now - state.get("last_refresh", 0) < 20:
+        return
+    state["last_refresh"] = now
+    try:
+        from meshcore_cli.meshcore_cli import next_cmd
+        await next_cmd(mc, ["contacts"])
+        log.info(f"Refreshed meshcore-bot's contact list for new DM sender {key[:12]}")
+    except Exception as e:
+        log.warning(f"Couldn't refresh contact list: {e}")
+
+_refresh_state: dict = {}
+
 
 def split_bytes(text: str, limit: int = MAX_DM_BYTES) -> list:
     """Split on line breaks (then spaces) so each DM fits the radio limit,
@@ -134,6 +162,7 @@ class BusBotAlarmsService(BaseServicePlugin):
 
     async def _deliver(self, dm: dict) -> None:
         cm = self.bot.command_manager
+        await ensure_dm_contact(self.bot, dm.get("pubKey"), _refresh_state, log)
         chunks = split_bytes(dm.get("text", ""))
         # Try the rider's public key first, then their name.
         recipients = [r for r in (dm.get("pubKey"), dm.get("name")) if r]
