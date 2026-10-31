@@ -305,7 +305,7 @@ describe("stops search", () => {
 		}) as typeof fetch;
 		const reply = await handleCommand("stops 1100 broadway", { isDM: false });
 		assert.match(url, /nominatim\.openstreetmap\.org\/search\?q=1100\+broadway.*bounded=1/);
-		assert.match(reply!, /^Near Somewhere on Broadway:\n11040 Broadway & E Pine St · 350 ft → 11\n1120 3rd Ave & Pike St, Bay 2 · 1\.2 mi → 11, G Line$/);
+		assert.match(reply!, /^Near Somewhere on Broadway:\n11040 Broadway & E Pine St · 350 ft → 11\n11050 Broadway & E Madison St · 0\.6 mi → 49\n1121 4th Ave & Union St · 1\.2 mi → 49$/);
 	});
 	it("says so when the place isn't in King County", async () => {
 		process.env.GEOCODE = "on";
@@ -317,15 +317,15 @@ describe("stops search", () => {
 describe("help", () => {
 	it("lists commands standalone, with fav only in DMs", async () => {
 		const ch = (await handleCommand("help", { isDM: false }))!;
-		assert.match(ch, /^Transit:\nbus \[stop\] \[route\]\nstops \[place\]\nalerts \[stop\]\nnear \(DM me\)\ninfo stats beats\nhelp \[cmd\] = examples$/);
+		assert.match(ch, /^Transit:\nbus \[stop\] \[route\]\nstops \[place\]\ngo \[A\] to \[B\]\nalerts \[stop\]\nnear \(DM me\)\ninfo stats beats\nhelp \[cmd\]$/);
 		assert.doesNotMatch(ch, /fav/);
-		assert.match((await handleCommand("help", { isDM: true }))!, /\nnear · fav · watch · commute\n/);
+		assert.match((await handleCommand("help", { isDM: true }))!, /\nnear fav watch commute\n/);
 	});
 	it("uses the words riders type under meshcore-bot, and accepts them as topics", async () => {
 		const say = { bus: "bus", alerts: "busalerts", stops: "stops", fav: "fav", help: "bushelp" };
 		const h = (await handleCommand("help", { isDM: false, say }))!;
 		assert.match(h, /\nbusalerts \[stop\]\n/);
-		assert.match(h, /\nbushelp \[cmd\] = examples$/);
+		assert.match(h, /\nbushelp \[cmd\]$/);
 		assert.doesNotMatch(h, /info stats/);
 		assert.match((await handleCommand("help busalerts", { isDM: false, say }))!, /\nbusalerts 1120 11\n/);
 		assert.match((await handleCommand("stops", { isDM: false, say }))!, /stops pine 4th/);
@@ -664,7 +664,7 @@ describe("near", () => {
 	it("lists the closest stops to the rider's advert, in DMs", async () => {
 		assert.equal(
 			await handleCommand("near", { isDM: true, near: DOWNTOWN }),
-			"Near you:\n1120 3rd Ave & Pike St, Bay 2 · 200 ft → 11, G Line\n11040 Broadway & E Pine St · 1.1 mi → 11",
+			"Near you:\n1121 4th Ave & Union St · 50 ft → 49\n1120 3rd Ave & Pike St, Bay 2 · 200 ft → 11, G Line\n11040 Broadway & E Pine St · 1.1 mi → 11",
 		);
 	});
 	it("won't reveal where someone is in a channel", async () => {
@@ -678,5 +678,45 @@ describe("near", () => {
 	});
 	it("near [place] is a stop search and works anywhere", async () => {
 		assert.match((await handleCommand("near pike 3rd", { isDM: false }))!, /^pike 3rd:\n1120 3rd Ave/);
+	});
+});
+
+describe("trip planner (go)", () => {
+	const TUE_0740 = t("2026-10-27T14:40:00Z");
+	const realNow = Date.now;
+	before(() => (Date.now = () => TUE_0740));
+	after(() => (Date.now = realNow));
+	const PLAN =
+		"Arrive 8:25 · 45 min · 1 transfer · timetable\n11 7:50 11040 → 3rd Ave & Pike St, Bay 2 8:00\n1 min to 1121\n49 8:15 1121 → Broadway & E Madison St 8:25";
+	it("plans a trip with a walk and a transfer, from stop numbers", async () => {
+		assert.equal(await handleCommand("go 11040 to 11050", { isDM: false }), PLAN);
+	});
+	it("takes cross streets", async () => {
+		assert.equal(await handleCommand("go pine broadway to madison broadway", { isDM: false }), PLAN);
+	});
+	it("plans from here in DMs only", async () => {
+		const near = { lat: 47.6105, lon: -122.32 };
+		assert.equal(await handleCommand("go to 11050", { isDM: true, near }), PLAN);
+		assert.match((await handleCommand("go to 11050", { isDM: false, near }))!, /^DM me to plan from "here"/);
+	});
+	it("says when places are a short walk apart, or nothing runs", async () => {
+		assert.match((await handleCommand("go 1120 to 1121", { isDM: false }))!, /short walk/);
+		assert.match((await handleCommand("go 11050 to 11040", { isDM: false }))!, /No trip found in the next 3 hours/);
+	});
+	it("explains itself without a destination", async () => {
+		assert.match((await handleCommand("go", { isDM: false }))!, /^Plan a trip, works offline:\ngo pine 4th to madison mlk/);
+		assert.match((await handleCommand("go somewhere", { isDM: false }))!, /^Use: go \[from\] to \[to\]/);
+	});
+	it("keeps help within one mesh message", async () => {
+		process.env.EMOJI = "on";
+		try {
+			for (const isDM of [false, true]) {
+				const h = (await handleCommand("help", { isDM }))!;
+				assert.ok(Buffer.byteLength(h) <= 115, `${Buffer.byteLength(h)} bytes`);
+			}
+			assert.ok(Buffer.byteLength((await handleCommand("help go", { isDM: false }))!) <= 115);
+		} finally {
+			process.env.EMOJI = "off";
+		}
 	});
 });

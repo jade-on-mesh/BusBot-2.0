@@ -1,4 +1,5 @@
 [
 {"route_id":"100011","agency_id":"1","route_short_name":"11","route_long_name":"Madison Park - Downtown","route_type":"3"},
-{"route_id":"102745","agency_id":"1","route_short_name":"G Line","route_long_name":"RapidRide G Line","route_type":"3"}
+{"route_id":"102745","agency_id":"1","route_short_name":"G Line","route_long_name":"RapidRide G Line","route_type":"3"},
+{"route_id":"100049","agency_id":"1","route_short_name":"49","route_long_name":"U-District - Downtown","route_type":"3"}
 ]

@@ -13,14 +13,14 @@ export const help = (isDM = false, say?: Words) => {
 		em("🚌", "Transit:"),
 		`${w("bus")} [stop] [route]`,
 		`${w("stops")} [place]`,
+		`${w("go")} [A] to [B]`,
 		`${w("alerts")} [stop]`,
 	];
-	if (isDM) lines.push(`${w("near")} · ${w("fav")} · ${w("watch")} · ${w("commute")}`);
+	if (isDM) lines.push(`${w("near")} ${w("fav")} ${w("watch")} ${w("commute")}`);
 	else lines.push(`${w("near")} (DM me)`);
 	// Standalone BusBot also answers these; under meshcore-bot they're its own.
 	if (!say && !isDM) lines.push("info stats beats");
-	// DM help has one more line, so its footer is shorter to stay one message
-	lines.push(isDM ? `${w("help")} [cmd]` : `${w("help")} [cmd] = examples`);
+	lines.push(`${w("help")} [cmd]`);
 	return lines.join("\n");
 };
 

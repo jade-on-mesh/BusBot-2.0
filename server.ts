@@ -7,6 +7,7 @@
 //   GET  /health   -> {"ok": true, ...}
 //
 // Listens on 127.0.0.1 only. Start with: npm run serve
+import { warmPlanner } from "./planner";
 import { createServer, IncomingMessage } from "node:http";
 import { feeds, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { liveSummary } from "./realtime";
@@ -20,6 +21,7 @@ const PORT = parseInt(process.env.BUSBOT_PORT || "8787");
 const MAX_BODY = 4096;
 
 loadGtfs();
+warmPlanner();
 
 // Without its own radio, BusBot never hears adverts, so riders are created
 // the first time they DM a command (needed for favorites).

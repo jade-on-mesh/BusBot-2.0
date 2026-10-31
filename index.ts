@@ -1,3 +1,4 @@
+import { warmPlanner } from "./planner";
 import { Constants, NodeJSSerialConnection } from "@liamcottle/meshcore.js";
 import { info } from "./commands";
 import { OutgoingDm, startAlarms } from "./alarms";
@@ -39,6 +40,7 @@ const FEED_WARNING_MS = 14 * 24 * 60 * 60 * 1000;
 const COMPANION = 1; // contact type for chat nodes
 
 loadGtfs();
+warmPlanner();
 
 const connection = new NodeJSSerialConnection(SERIAL_PORT);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

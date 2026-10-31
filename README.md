@@ -22,6 +22,7 @@ Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. W
 | `alerts [stop]` / `alerts [stop] [route]` | channel, DM | Active service alerts |
 | `stops [cross streets or address]` | channel, DM | Find stop numbers (`stops pine 4th`, `stops 1100 broadway`) |
 | `near` | DM | The 3 stops closest to your radio's advertised position. In a channel it asks you to DM instead, so your location isn't broadcast. `near [place]` works anywhere |
+| `go [from] to [to]` | channel, DM | Plans a trip from the timetables, offline (see below). `go to [place]` plans from your advertised position, in DMs |
 | `watch [stop] [route]` / `commute [time] [stop] [route]` | DM | Ride alarms (see below) |
 | `fav add [stop]` / `fav rm [stop]` / `fav list` | DM | Save up to 5 favorite stops |
 | `fav` | DM | Arrivals for all your favorite stops |
@@ -32,6 +33,21 @@ Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. W
 
 ## Real-time data
 If `OBA_API_KEY` is set, BusBot asks [OneBusAway Puget Sound](https://www.soundtransit.org/help-contacts/business-information/open-transit-data-otd) first. If that fails or isn't configured, it uses the King County Metro GTFS-RT trip updates feed on top of the static schedule. Responses are cached for 30 seconds.
+
+## Trip planner
+`go pine 4th to madison mlk` plans the fastest trip in the next 3 hours across every agency, from the schedules on the Pi, so it works with no internet at all:
+
+```
+🧭 Arrive 8:25 · 45 min · 1 transfer · timetable
+🚌 11 7:50 11040 → 3rd Ave & Pike St, Bay 2 8:00
+🚶 1 min to 1121
+🚌 49 8:15 1121 → Broadway & E Madison St 8:25
+```
+
+- Places can be stop numbers (`1120`, `ct 1120`), cross streets, addresses or landmarks (when online), or `here` in a DM (your radio's advertised position).
+- It allows 2 minutes to change vehicles and walks of up to about 5 minutes between nearby stops; from a place, it considers every stop within a 10-minute walk.
+- Times are timetable, not live: the reply says `timetable` so riders know. Use `bus` at the boarding stop for live times.
+- The network is built in the background a few seconds after BusBot starts (about a second and a few tens of MB for the whole region on a desktop; give a Pi a little longer). A plan then takes well under a second.
 
 ## Ride alarms
 In a DM to the bot:

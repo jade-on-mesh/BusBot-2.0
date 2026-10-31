@@ -1,3 +1,5 @@
 ﻿stop_id,stop_code,stop_name,stop_lat,stop_lon
 1120,1120,"3rd Ave & Pike St, Bay 2",47.6,-122.3
 11040,11040,Broadway & E Pine St,47.61,-122.32
+1121,1121,4th Ave & Union St,47.6004,-122.3004
+11050,11050,Broadway & E Madison St,47.62,-122.32

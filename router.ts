@@ -27,6 +27,7 @@ import {
 	helpCommute,
 } from "./commands";
 import { commute, unwatch, watch } from "./alarms";
+import { go, helpGo } from "./planner";
 import { parseStopArgs, Place } from "./gtfs";
 import { isAdmin } from "./store";
 
@@ -69,6 +70,7 @@ export const handleCommand = async (
 				if (topic === "stats") return helpStats();
 				if (topic === "stops") return helpStops(ctx.say);
 				if (topic === "near") return helpNear(ctx.say);
+				if (topic === "go") return helpGo(ctx.say);
 				if (topic === "watch" || topic === "unwatch") return helpWatch(ctx.say);
 				if (topic === "commute") return helpCommute(ctx.say);
 				if (topic === "admin" && isAdmin(ctx.pubKey)) return helpAdmin();
@@ -93,6 +95,8 @@ export const handleCommand = async (
 				return args.length ? stops(args.join(" ")) : helpStops(ctx.say);
 			case "near":
 				return near(args, ctx);
+			case "go":
+				return go(args, ctx);
 			// ride alarms: DMs only, they need to know who to message
 			case "watch":
 				return ctx.isDM ? watch(args, ctx) : undefined;

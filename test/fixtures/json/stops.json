@@ -1,4 +1,6 @@
 [
 {"stop_id":"1120","stop_code":"1120","stop_name":"3rd Ave & Pike St, Bay 2","stop_lat":"47.6","stop_lon":"-122.3"},
-{"stop_id":"11040","stop_code":"11040","stop_name":"Broadway & E Pine St","stop_lat":"47.61","stop_lon":"-122.32"}
+{"stop_id":"11040","stop_code":"11040","stop_name":"Broadway & E Pine St","stop_lat":"47.61","stop_lon":"-122.32"},
+{"stop_id":"1121","stop_code":"1121","stop_name":"4th Ave & Union St","stop_lat":"47.6004","stop_lon":"-122.3004"},
+{"stop_id":"11050","stop_code":"11050","stop_name":"Broadway & E Madison St","stop_lat":"47.62","stop_lon":"-122.32"}
 ]
