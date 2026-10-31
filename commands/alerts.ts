@@ -1,10 +1,16 @@
-import { findRoute, resolveStop, Route, routesByStop, shortName, Stop } from "../gtfs";
-import { Alert, getAlertsFor, getObaArrivals, obaEnabled, translate } from "../realtime";
+import { agencyName, findRoute, resolveStop, Route, routesByStop, shortName, Stop } from "../gtfs";
+import { Alert, getAlertsFor, getObaArrivals, obaCovers, translate } from "../realtime";
 import { em } from "../style";
 import { agencyTag, alsoLine, NO_STOP, StopOpts } from "./bus";
 
-const body = (texts: string[]) =>
-	texts.length ? texts.map((t) => em("⚠️", t)).join("\n") : em("✅", "No alerts.");
+// Never report an all-clear we couldn't actually check.
+type AlertsResult = { texts: string[]; state: "checked" | "unreachable" | "no-feed" };
+const body = ({ texts, state }: AlertsResult, stop: Stop) => {
+	if (texts.length) return texts.map((t) => em("⚠️", t)).join("\n");
+	if (state === "unreachable") return em("📴", "Can't reach live alerts right now.");
+	if (state === "no-feed") return em("➖", `No live alerts feed for ${agencyName(stop.agency)} yet.`);
+	return em("✅", "No alerts.");
+};
 
 const isActive = (alert: Alert, nowMs: number) => {
 	const periods = alert.alert.active_period ?? [];
@@ -31,17 +37,19 @@ const matches = (alert: Alert, stop: Stop, route?: Route) => {
 const alertText = (alert: Alert) =>
 	translate(alert.alert.short_header_text) ?? translate(alert.alert.header_text) ?? "Service alert";
 
-const gtfsAlerts = async (stop: Stop, route?: Route, nowMs = Date.now()) => {
-	const alerts = await getAlertsFor(stop.agency);
-	return [...new Set(alerts.filter((a) => isActive(a, nowMs) && matches(a, stop, route)).map(alertText))];
+const gtfsAlerts = async (stop: Stop, route?: Route, nowMs = Date.now()): Promise<AlertsResult> => {
+	const { alerts, status } = await getAlertsFor(stop.agency);
+	const texts = [...new Set(alerts.filter((a) => isActive(a, nowMs) && matches(a, stop, route)).map(alertText))];
+	const state = status === "none" ? "no-feed" : status === "down" ? "unreachable" : "checked";
+	return { texts, state };
 };
 
-const getStopAlerts = async (stop: Stop, route?: Route, nowMs = Date.now()) => {
+const getStopAlerts = async (stop: Stop, route?: Route, nowMs = Date.now()): Promise<AlertsResult> => {
 	// OneBusAway situations only when no route filter: they aren't easily
 	// attributable to one route from the arrivals response.
-	if (obaEnabled() && !route) {
+	if (obaCovers(stop) && !route) {
 		try {
-			return (await getObaArrivals(stop)).alerts;
+			return { texts: (await getObaArrivals(stop)).alerts, state: "checked" };
 		} catch (e) {
 			console.log("OneBusAway alerts failed, falling back to GTFS-RT:", (e as Error).message);
 		}
@@ -53,8 +61,8 @@ export const alertsStop = async (typed: string, nowMs = Date.now(), opts: StopOp
 	const found = resolveStop(typed, opts);
 	if (!found) return NO_STOP();
 	const { stop, others } = found;
-	const texts = await getStopAlerts(stop, undefined, nowMs);
-	return `${em("🚏", `${stop.stop_name}${agencyTag(stop)}`)}\n${body(texts)}${alsoLine(others)}`;
+	const result = await getStopAlerts(stop, undefined, nowMs);
+	return `${em("🚏", `${stop.stop_name}${agencyTag(stop)}`)}\n${body(result, stop)}${alsoLine(others)}`;
 };
 
 export const alertsStopAndRoute = async (typed: string, routeName: string, nowMs = Date.now(), opts: StopOpts = {}) => {
@@ -70,6 +78,6 @@ export const alertsStopAndRoute = async (typed: string, routeName: string, nowMs
 		}
 	}
 	if (!route) return em("❓", "No route found with that id.");
-	const texts = await getStopAlerts(stop, route, nowMs);
-	return `${em("🚏", `${shortName(route)} @ ${stop.stop_name}${agencyTag(stop)}`)}\n${body(texts)}`;
+	const result = await getStopAlerts(stop, route, nowMs);
+	return `${em("🚏", `${shortName(route)} @ ${stop.stop_name}${agencyTag(stop)}`)}\n${body(result, stop)}`;
 };

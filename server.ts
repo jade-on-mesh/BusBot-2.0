@@ -9,6 +9,7 @@
 // Listens on 127.0.0.1 only. Start with: npm run serve
 import { createServer, IncomingMessage } from "node:http";
 import { feeds, loadGtfs, soonestFeedEnd } from "./gtfs";
+import { liveSummary } from "./realtime";
 import { countQuery, divideReply, handleCommand } from "./router";
 import { flushUsers, isBlocked, saveUsers, toHex, userPlace, users, validPlace } from "./store";
 
@@ -75,6 +76,7 @@ const server = createServer(async (req, res) => {
 				feedEndDate: soonest?.end ?? null,
 				feedEndAgency: soonest?.agency ?? null,
 				users: users.size,
+				live: liveSummary(),
 			});
 		}
 		if (req.method !== "POST" || req.url !== "/command") return send(404, { error: "not found" });

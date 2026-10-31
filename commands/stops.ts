@@ -158,7 +158,7 @@ export const stops = async (query: string) => {
 		place = await geocode(q);
 	} catch (e) {
 		console.log("Geocoding failed:", (e as Error).message);
-		return em("❓", "No stop names match, and address lookup is unavailable right now.");
+		return em("📴", "No stop names match, and address lookup is offline. Try cross streets, e.g. stops pine 4th");
 	}
 	if (!place) return em("❓", "Couldn't find that around Puget Sound. Try cross streets, e.g. stops pine 4th");
 	const near = nearestStops(place.lat, place.lon);

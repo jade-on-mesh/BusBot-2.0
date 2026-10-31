@@ -30,6 +30,16 @@ Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. W
 ## Real-time data
 If `OBA_API_KEY` is set, BusBot asks [OneBusAway Puget Sound](https://www.soundtransit.org/help-contacts/business-information/open-transit-data-otd) first. If that fails or isn't configured, it uses the King County Metro GTFS-RT trip updates feed on top of the static schedule. Responses are cached for 30 seconds.
 
+## Outage mode
+BusBot is built to keep answering when the internet doesn't. Schedules for every agency live on the Pi, so `bus`, `stops` (cross streets) and favorites keep working with no connection at all.
+
+- If a live source stops answering, BusBot keeps using its most recent data for up to 5 minutes, which rides out brief blips without riders noticing.
+- After that, replies end with `📴 offline: schedule times only`, so riders know the times are timetable, not tracking.
+- A dead source is skipped for a minute at a time, so riders aren't each kept waiting by a timeout.
+- `alerts` never reports an all-clear it couldn't check: it says `📴 Can't reach live alerts right now` instead.
+- Agencies with no live feed at all just show 🕒 scheduled times, with no outage notice.
+- `curl localhost:8787/health` shows each live source's state under `live`.
+
 ## Users and contacts
 A companion radio can only hold so many contacts, and it can only read DMs from contacts it holds. BusBot saves every rider it hears (public key, name, favorites) in `db/users.json` and treats the radio's contact table as a cache. When it reaches `MAX_CONTACTS` companions, the rider who least recently used the bot is removed from the radio to make room. Their favorites stay saved, and their next advert puts them back. Keys listed in `ADMIN_KEYS` are never evicted.
 

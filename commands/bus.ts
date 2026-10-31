@@ -13,7 +13,7 @@ import {
 	stopTimesByStop,
 	tripsByKey,
 } from "../gtfs";
-import { getObaArrivals, getTripUpdates, obaEnabled, StopTimeUpdate, TripUpdate } from "../realtime";
+import { getObaArrivals, getTripUpdates, LiveStatus, obaCovers, StopTimeUpdate, TripUpdate } from "../realtime";
 import { em, routeEmoji, scheduledMark } from "../style";
 import { prettyTime, serviceDays } from "../time";
 
@@ -47,8 +47,12 @@ const findStopUpdate = (tu: TripUpdate, stopId: string, seq: number) => {
 	return prior ? { update: prior, exact: false } : undefined;
 };
 
-const gtfsArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()): Promise<Arrival[]> => {
-	const tripUpdates = await getTripUpdates(stop.agency);
+const gtfsArrivals = async (
+	stop: Stop,
+	route?: Route,
+	nowMs = Date.now(),
+): Promise<{ arrivals: Arrival[]; status: LiveStatus }> => {
+	const { updates: tripUpdates, status } = await getTripUpdates(stop.agency);
 	const arrivals: Arrival[] = [];
 	const stopTimes = stopTimesByStop.get(stop.key) ?? [];
 
@@ -87,7 +91,7 @@ const gtfsArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()): Prom
 			arrivals.push({ routeKey: trip.route_key, routeName: shortName(r), epochMs, realtime });
 		}
 	}
-	return arrivals.sort((a, b) => a.epochMs - b.epochMs);
+	return { arrivals: arrivals.sort((a, b) => a.epochMs - b.epochMs), status };
 };
 
 const obaArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()): Promise<Arrival[]> => {
@@ -105,16 +109,25 @@ const obaArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()): Promi
 };
 
 // OneBusAway first, then the agency's GTFS-RT + schedule as the fallback.
+// `offline` means live data was expected for this agency but none of its
+// sources could be reached, so every time shown is from the schedule.
 export const getArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()) => {
-	if (obaEnabled()) {
+	const viaOba = obaCovers(stop);
+	if (viaOba) {
 		try {
-			return await obaArrivals(stop, route, nowMs);
+			return { arrivals: await obaArrivals(stop, route, nowMs), offline: false };
 		} catch (e) {
 			console.log("OneBusAway failed, falling back to GTFS:", (e as Error).message);
 		}
 	}
-	return gtfsArrivals(stop, route, nowMs);
+	const { arrivals, status } = await gtfsArrivals(stop, route, nowMs);
+	const expectedLive = viaOba || status !== "none";
+	const gotLive = status === "live" || status === "stale";
+	return { arrivals, offline: expectedLive && !gotLive };
 };
+
+// Last line of a reply when live data couldn't be reached.
+export const OFFLINE = () => em("📴", "offline: schedule times only");
 
 const formatArrival = (nowMs: number, a: Arrival) =>
 	`${prettyTime(nowMs, a.epochMs)}${a.realtime ? "" : scheduledMark()}`;
@@ -136,17 +149,18 @@ export const busStop = async (typed: string, nowMs = Date.now(), opts: StopOpts 
 	if (!found) return NO_STOP();
 	const { stop, others } = found;
 
-	const arrivals = await getArrivals(stop, undefined, nowMs);
+	const { arrivals, offline } = await getArrivals(stop, undefined, nowMs);
+	const tail = `${offline ? `\n${OFFLINE()}` : ""}${alsoLine(others)}`;
 	const nextByRoute = new Map<string, Arrival>();
 	for (const a of arrivals) if (!nextByRoute.has(a.routeName)) nextByRoute.set(a.routeName, a);
 
 	let reply = em("🚏", `${stop.stop_name}${agencyTag(stop)}`);
-	if (!nextByRoute.size) return `${reply}\n${NO_TRIPS()}${alsoLine(others)}`;
+	if (!nextByRoute.size) return `${reply}\n${NO_TRIPS()}${tail}`;
 	for (const a of nextByRoute.values()) {
 		const icon = routeEmoji(a.routeKey ? routesByKey.get(a.routeKey) : undefined, a.routeName);
 		reply += `\n${em(icon, `${a.routeName} - ${formatArrival(nowMs, a)}`)}`;
 	}
-	return reply + alsoLine(others);
+	return reply + tail;
 };
 
 export const busStopAndRoute = async (typed: string, routeName: string, nowMs = Date.now(), opts: StopOpts = {}) => {
@@ -166,9 +180,11 @@ export const busStopAndRoute = async (typed: string, routeName: string, nowMs = 
 	}
 	if (!route) return NO_ROUTE();
 
-	const arrivals = (await getArrivals(stop, route, nowMs)).slice(0, 5);
+	const result = await getArrivals(stop, route, nowMs);
+	const arrivals = result.arrivals.slice(0, 5);
+	const tail = result.offline ? `\n${OFFLINE()}` : "";
 	let reply = em(routeEmoji(route), `${shortName(route)} @ ${stop.stop_name}${agencyTag(stop)}`);
-	if (!arrivals.length) return `${reply}\n${NO_TRIPS()}`;
+	if (!arrivals.length) return `${reply}\n${NO_TRIPS()}${tail}`;
 	for (const a of arrivals) reply += `\n${formatArrival(nowMs, a)}`;
-	return reply;
+	return reply + tail;
 };

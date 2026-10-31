@@ -4,18 +4,33 @@
 //     from feeds.json, or OneBusAway's per-agency GTFS-RT when a key is set.
 //  3. Nothing: the schedule alone, marked 🕒 in replies.
 // Responses are cached briefly so a burst of mesh queries doesn't hammer anyone.
+//
+// Outage mode: every live source has a health record. When a fetch fails the
+// source is skipped for a minute (so riders don't each wait out a timeout),
+// the last good data keeps being used for up to 5 minutes (delays from a few
+// minutes ago beat a bare schedule), and after that callers get status
+// "down" so replies can say they're running on the schedule alone.
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import { FeedConfig, feeds, Stop } from "./gtfs";
 
 const FETCH_TIMEOUT_MS = 10_000;
 const redact = (url: string) => url.replace(/key=[^&]+/, "key=***");
 
-// ---------- realtime health (for outage awareness) ----------
+// ---------- source health (outage mode) ----------
 
-// Last time any live source answered, and whether the latest attempt failed.
-export const liveHealth = { lastOk: 0, lastFail: 0 };
-const ok = () => (liveHealth.lastOk = Date.now());
-const fail = () => (liveHealth.lastFail = Date.now());
+export type LiveStatus = "live" | "stale" | "down" | "none";
+export type SourceHealth = { lastOk: number; lastFail: number; lastError?: string; skipUntil: number };
+
+const SKIP_AFTER_FAIL_MS = 60_000;
+const STALE_OK_MS = 5 * 60_000;
+
+// source name ("kcm:tripUpdates", "oba") -> health
+export const sourceHealth = new Map<string, SourceHealth>();
+const healthOf = (name: string) => {
+	let h = sourceHealth.get(name);
+	if (!h) sourceHealth.set(name, (h = { lastOk: 0, lastFail: 0, skipUntil: 0 }));
+	return h;
+};
 
 // ---------- fetching & decoding ----------
 
@@ -48,22 +63,45 @@ const fetchJson = async (url: string): Promise<any> => {
 };
 
 const allCaches: Map<string, unknown>[] = [];
-// Forget cached live data (used by tests; config doesn't change at runtime).
-export const clearRealtimeCache = () => allCaches.forEach((c) => c.clear());
+// Forget cached live data and source health (used by tests).
+export const clearRealtimeCache = () => {
+	allCaches.forEach((c) => c.clear());
+	sourceHealth.clear();
+};
 
-const cachedBy = <T>(ttlMs: number, loader: (key: string) => Promise<T>) => {
+type LiveResult<T> = { value?: T; status: Exclude<LiveStatus, "none"> };
+
+// Fetches through a cache with outage handling. `source` names the upstream
+// for health and skipping; `key` is what's being fetched from it.
+const liveCache = <T>(ttlMs: number, source: (key: string) => string, loader: (key: string) => Promise<T>) => {
 	const cache = new Map<string, { at: number; value: T }>();
 	allCaches.push(cache);
-	const inflight = new Map<string, Promise<T>>();
-	return async (key: string): Promise<T> => {
+	const inflight = new Map<string, Promise<LiveResult<T>>>();
+	return async (key: string): Promise<LiveResult<T>> => {
+		const now = Date.now();
 		const hit = cache.get(key);
-		if (hit && Date.now() - hit.at < ttlMs) return hit.value;
+		if (hit && now - hit.at < ttlMs) return { value: hit.value, status: "live" };
+		const name = source(key);
+		const health = healthOf(name);
+		const fallback = (): LiveResult<T> =>
+			hit && now - hit.at < STALE_OK_MS ? { value: hit.value, status: "stale" } : { status: "down" };
+		if (now < health.skipUntil) return fallback();
+
 		let p = inflight.get(key);
 		if (!p) {
 			p = loader(key)
-				.then((value) => {
+				.then((value): LiveResult<T> => {
 					cache.set(key, { at: Date.now(), value });
-					return value;
+					health.lastOk = Date.now();
+					health.lastError = undefined;
+					return { value, status: "live" };
+				})
+				.catch((e): LiveResult<T> => {
+					health.lastFail = Date.now();
+					health.lastError = (e as Error).message;
+					health.skipUntil = Date.now() + SKIP_AFTER_FAIL_MS;
+					console.log(`Live data unavailable from ${name}: ${health.lastError}`);
+					return fallback();
 				})
 				.finally(() => inflight.delete(key));
 			inflight.set(key, p);
@@ -102,25 +140,29 @@ export type TripUpdate = {
 	stop_time_update?: StopTimeUpdate[];
 };
 
-// trip_id -> update, for one agency
-export const getTripUpdates = cachedBy(30_000, async (agency: string) => {
-	const map = new Map<string, TripUpdate>();
-	const f = feeds.get(agency);
-	const src = f && sourceFor(f, "tripUpdates");
-	if (!src) return map;
-	try {
+const tripUpdatesCached = liveCache(
+	30_000,
+	(agency) => `${agency}:tripUpdates`,
+	async (agency: string) => {
+		const src = sourceFor(feeds.get(agency)!, "tripUpdates")!;
 		const data = await fetchFeed(src.url, src.format);
+		const map = new Map<string, TripUpdate>();
 		for (const e of data?.entity ?? []) {
 			const tu: TripUpdate | undefined = e.trip_update;
 			if (tu?.trip?.trip_id) map.set(tu.trip.trip_id, tu);
 		}
-		ok();
-	} catch (e) {
-		fail();
-		console.log(`Realtime trip updates failed for ${agency}:`, (e as Error).message);
-	}
-	return map;
-});
+		return map;
+	},
+);
+
+// trip_id -> update for one agency, plus whether it's live, slightly stale,
+// unreachable, or the agency has no live feed at all.
+export const getTripUpdates = async (agency: string): Promise<{ updates: Map<string, TripUpdate>; status: LiveStatus }> => {
+	const f = feeds.get(agency);
+	if (!f || !sourceFor(f, "tripUpdates")) return { updates: new Map(), status: "none" };
+	const { value, status } = await tripUpdatesCached(agency);
+	return { updates: value ?? new Map(), status };
+};
 
 // ---------- alerts ----------
 
@@ -138,20 +180,22 @@ export type Alert = {
 	};
 };
 
-export const getAlertsFor = cachedBy(60_000, async (agency: string): Promise<Alert[]> => {
-	const f = feeds.get(agency);
-	const src = f && sourceFor(f, "alerts");
-	if (!src) return [];
-	try {
+const alertsCached = liveCache(
+	60_000,
+	(agency) => `${agency}:alerts`,
+	async (agency: string): Promise<Alert[]> => {
+		const src = sourceFor(feeds.get(agency)!, "alerts")!;
 		const data = await fetchFeed(src.url, src.format);
-		ok();
 		return (data?.entity ?? []).filter((e: any) => e?.alert).map((e: any) => ({ ...e, agency }));
-	} catch (e) {
-		fail();
-		console.log(`Alerts failed for ${agency}:`, (e as Error).message);
-		return [];
-	}
-});
+	},
+);
+
+export const getAlertsFor = async (agency: string): Promise<{ alerts: Alert[]; status: LiveStatus }> => {
+	const f = feeds.get(agency);
+	if (!f || !sourceFor(f, "alerts")) return { alerts: [], status: "none" };
+	const { value, status } = await alertsCached(agency);
+	return { alerts: value ?? [], status };
+};
 
 // Picks the translation for LANGUAGE_CODE, falling back to the first one.
 export const translate = (s?: TranslatedString): string | undefined => {
@@ -182,22 +226,14 @@ const fromObaId = (obaId: string) => {
 	return feed ? `${feed.id}:${m[2]}` : undefined;
 };
 
-const obaArrivalsCached = cachedBy(30_000, async (obaStopId: string) => {
+const obaArrivalsCached = liveCache(30_000, () => "oba", async (obaStopId: string) => {
 	const url = `${obaBase()}/api/where/arrivals-and-departures-for-stop/${encodeURIComponent(
 		obaStopId,
 	)}.json?key=${obaKey()}&minutesBefore=2&minutesAfter=120`;
-	let data: any;
-	try {
-		data = await fetchJson(url);
-	} catch (e) {
-		fail();
-		throw e;
-	}
+	const data = await fetchJson(url);
 	if (data?.code !== 200 || !data?.data?.entry) {
-		fail();
 		throw new Error(`OneBusAway returned code ${data?.code}: ${data?.text ?? "no entry"}`);
 	}
-	ok();
 	const arrivals: ObaArrival[] = (data.data.entry.arrivalsAndDepartures ?? []).map((a: any) => {
 		const predicted = Boolean(a.predicted) && a.predictedArrivalTime > 0;
 		return {
@@ -214,8 +250,28 @@ const obaArrivalsCached = cachedBy(30_000, async (obaStopId: string) => {
 	return { arrivals, alerts };
 });
 
+// Arrivals and alerts for a stop from OneBusAway. Throws when OneBusAway
+// isn't set up for the agency or can't be reached (and has nothing recent),
+// so callers fall back to the agency's own feed and the schedule.
 export const getObaArrivals = async (stop: Stop) => {
 	const oba = feeds.get(stop.agency)?.oba;
 	if (!oba) throw new Error(`no OneBusAway agency id for ${stop.agency}`);
-	return obaArrivalsCached(`${oba}_${stop.stop_id}`);
+	const { value } = await obaArrivalsCached(`${oba}_${stop.stop_id}`);
+	if (!value) throw new Error("OneBusAway unavailable");
+	return value;
 };
+
+export const obaCovers = (stop: Stop) => obaEnabled() && Boolean(feeds.get(stop.agency)?.oba);
+
+// For /health: each live source's state.
+export const liveSummary = () =>
+	Object.fromEntries(
+		[...sourceHealth.entries()].map(([name, h]) => [
+			name,
+			{
+				ok: h.lastOk >= h.lastFail,
+				lastOk: h.lastOk ? new Date(h.lastOk).toISOString() : null,
+				lastError: h.lastOk >= h.lastFail ? undefined : h.lastError,
+			},
+		]),
+	);

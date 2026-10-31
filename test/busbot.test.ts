@@ -399,3 +399,98 @@ describe("Cascadia: several agencies", () => {
 		}
 	});
 });
+
+describe("outage mode", () => {
+	const realFetch = globalThis.fetch;
+	const realNow = Date.now;
+	let clock = TUE_0810;
+	let calls = 0;
+	let netUp = true;
+	before(async () => {
+		Date.now = () => clock;
+		globalThis.fetch = (async (url: string) => {
+			calls++;
+			if (!netUp) throw new TypeError("fetch failed");
+			return realFetch(url);
+		}) as typeof fetch;
+	});
+	after(() => {
+		Date.now = realNow;
+		globalThis.fetch = realFetch;
+		process.env.OBA_API_KEY = "";
+	});
+	const reset = async () => {
+		(await import("../realtime")).clearRealtimeCache();
+		clock = TUE_0810;
+		calls = 0;
+		netUp = true;
+		process.env.OBA_API_KEY = "";
+	};
+	const ask = (msg: string) => handleCommand(msg, { isDM: false });
+
+	it("says when it's running on the schedule because live data is unreachable", async () => {
+		await reset();
+		netUp = false;
+		assert.equal(
+			await ask("bus 1120"),
+			// the 8:12 trip was cancelled, but only live data says so
+			"3rd Ave & Pike St, Bay 2\n11 - 2 mins (s)\nG Line - 3 mins (s)\noffline: schedule times only\nalso: ct 1120",
+		);
+	});
+	it("stops retrying a dead source for a minute instead of making every rider wait", async () => {
+		await reset();
+		netUp = false;
+		await ask("bus 1120");
+		const after1 = calls;
+		await ask("bus 1120 11");
+		await ask("bus 11040");
+		assert.equal(calls, after1, "no new fetches while the source is being skipped");
+		clock += 61_000;
+		await ask("bus 1120");
+		assert.equal(calls, after1 + 1, "tries again after a minute");
+	});
+	it("rides out a short blip on recent live data, then admits it's offline", async () => {
+		await reset();
+		assert.match((await ask("bus 1120"))!, /\n11 - 5 mins\n/); // live: 15 min late
+		netUp = false;
+		clock += 40_000; // cache expired, fetch fails, data is 40 s old
+		const blip = (await ask("bus 1120"))!;
+		assert.match(blip, /\n11 - 4 mins\n/);
+		assert.doesNotMatch(blip, /offline/);
+		clock += 6 * 60_000; // data now too old to trust
+		assert.match((await ask("bus 1120"))!, /\noffline: schedule times only\n/);
+	});
+	it("never reports an all-clear it couldn't check", async () => {
+		await reset();
+		netUp = false;
+		assert.equal(await ask("alerts 1120"), "3rd Ave & Pike St, Bay 2\nCan't reach live alerts right now.\nalso: ct 1120");
+		assert.equal(await ask("alerts ct 1120"), "Everett Station Bay 3 · CT\nNo live alerts feed for Community Transit yet.");
+	});
+	it("doesn't call an agency with no live feed offline", async () => {
+		await reset();
+		netUp = false;
+		assert.doesNotMatch((await ask("bus ct 1120"))!, /offline/);
+	});
+	it("with OneBusAway: its outage alone isn't offline if the agency's own feed works", async () => {
+		await reset();
+		process.env.OBA_API_KEY = "k";
+		globalThis.fetch = (async (url: string) => {
+			calls++;
+			if (String(url).includes("onebusaway")) throw new TypeError("fetch failed");
+			return realFetch(url);
+		}) as typeof fetch;
+		try {
+			const metro = (await ask("bus 1120"))!;
+			assert.match(metro, /\n11 - 5 mins\n/);
+			assert.doesNotMatch(metro, /offline/);
+			// CT's live data would come only from OneBusAway, which is down
+			assert.match((await ask("bus ct 1120"))!, /\noffline: schedule times only$/);
+		} finally {
+			globalThis.fetch = (async (url: string) => {
+				calls++;
+				if (!netUp) throw new TypeError("fetch failed");
+				return realFetch(url);
+			}) as typeof fetch;
+		}
+	});
+});
