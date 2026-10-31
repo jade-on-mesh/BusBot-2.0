@@ -36,6 +36,9 @@ Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. W
 ## Real-time data
 If `OBA_API_KEY` is set, BusBot asks [OneBusAway Puget Sound](https://www.soundtransit.org/help-contacts/business-information/open-transit-data-otd) first. If that fails or isn't configured, it uses the King County Metro GTFS-RT trip updates feed on top of the static schedule. Responses are cached for 30 seconds.
 
+## Typos
+`stops`, `go` and `pin` forgive misspellings: `stops akai beach` and `stops alkai beach` both find Alki. When a search finds nothing as typed, each unknown word is swapped for the closest word from the stop names, trip headsigns and route names of every loaded agency (plus common place words like beach, park and market), then BusBot searches again, offline first and then by address lookup. Replies show the corrected words, so riders can see what was searched.
+
 ## Trip planner
 `go pine 4th to madison mlk` plans the fastest trip in the next 3 hours across every agency, from the schedules on the Pi, so it works with no internet at all:
 

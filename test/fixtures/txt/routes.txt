@@ -2,3 +2,4 @@ route_id,agency_id,route_short_name,route_long_name,route_type
 100011,1,"11","Madison Park - Downtown",3
 102745,1,"G Line","RapidRide G Line",3
 100049,1,"49","U-District - Downtown",3
+100037,1,"37","Alaska Junction - Alki",3

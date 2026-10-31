@@ -773,3 +773,34 @@ describe("map pins (MeshCore Open TAK / Wadamesh)", () => {
 		assert.ok(Buffer.byteLength(long) <= 32 && long.endsWith("…"), long);
 	});
 });
+
+describe("typos", () => {
+	it("corrects words to the nearest known stop, headsign or place word", async () => {
+		const { correctWord, correctQuery } = await import("../commands/stops");
+		assert.equal(correctWord("akai"), "alki");
+		assert.equal(correctWord("alkai"), "alki");
+		assert.equal(correctWord("zorbu"), "zorbu"); // too far from anything: left alone
+		assert.equal(correctWord("braodway"), "broadway");
+		assert.equal(correctWord("pine"), "pine");
+		assert.equal(correctQuery("Akai Beach"), "alki beach");
+		assert.equal(correctQuery("pine 4th"), undefined);
+	});
+	it("finds stops by name despite a typo, offline", async () => {
+		process.env.GEOCODE = "off";
+		assert.match((await handleCommand("stops alkai ave", { isDM: false }))!, /^alki ave:\n1700 Alki Ave SW & 61st Ave SW/);
+		assert.match((await handleCommand("stops braodway pine", { isDM: false }))!, /^broadway pine:\n11040 /);
+	});
+	it("retries the address lookup with the typo fixed", async () => {
+		process.env.GEOCODE = "on";
+		const asked: string[] = [];
+		globalThis.fetch = (async (u: string) => {
+			const q = new URL(String(u)).searchParams.get("q")!;
+			asked.push(q);
+			return new Response(q === "alki beach" ? JSON.stringify([{ lat: "47.5790", lon: "-122.4100", name: "Alki Beach Park" }]) : "[]");
+		}) as typeof fetch;
+		const reply = (await handleCommand("stops Akai Beach", { isDM: false }))!;
+		assert.deepEqual(asked, ["akai beach", "alki beach"]);
+		assert.match(reply, /^Near Alki Beach Park:\n1700 Alki Ave SW & 61st Ave SW · /);
+		process.env.GEOCODE = "off";
+	});
+});

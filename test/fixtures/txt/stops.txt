@@ -3,3 +3,4 @@
 11040,11040,Broadway & E Pine St,47.61,-122.32
 1121,1121,4th Ave & Union St,47.6004,-122.3004
 11050,11050,Broadway & E Madison St,47.62,-122.32
+1700,1700,Alki Ave SW & 61st Ave SW,47.5795,-122.4095

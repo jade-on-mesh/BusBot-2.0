@@ -7,7 +7,7 @@
 // 2. Anything else: geocode it (OpenStreetMap Nominatim, limited to the
 //    Puget Sound region) and return the closest stops by distance, across
 //    every loaded agency.
-import { metersBetween, routesByKey, routesByStop, shortName, Stop, stopRef, stopsByKey } from "../gtfs";
+import { metersBetween, routesByKey, routesByStop, shortName, Stop, stopRef, stopsByKey, tripsByKey } from "../gtfs";
 import { notePin } from "../pins";
 import { em } from "../style";
 
@@ -61,6 +61,108 @@ export const searchStopsByName = (query: string): Stop[] => {
 	// then by number so results are stable.
 	hits.sort((a, b) => a.extra - b.extra || a.stop.key.localeCompare(b.stop.key, undefined, { numeric: true }));
 	return hits.map((h) => h.stop);
+};
+
+// ---------- typos ----------
+//
+// "akai beach", "alkai beach" -> "alki beach". Each word that isn't a known
+// word gets the closest one from the stop names, trip headsigns and route
+// names of every loaded agency (plus common place words), so it works
+// offline. Used only when the query as typed finds nothing.
+
+// Words riders use for places that stop names rarely contain.
+const PLACE_WORDS =
+	"beach park market station terminal ferry dock pier airport university college school hospital center centre " +
+	"mall library stadium field arena zoo museum garden gardens lake bay island point tower plaza square " +
+	"downtown waterfront transit hub junction landing harbor marina trail bridge church hall court courthouse " +
+	"high middle elementary campus clinic medical theater theatre north south east west";
+
+let vocab: Map<string, number> | undefined;
+const getVocab = () => {
+	if (vocab) return vocab;
+	const counts = new Map<string, number>();
+	const add = (text?: string) => {
+		for (const t of tokens(text ?? "")) if (t.length >= 3 && !/\d/.test(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
+	};
+	for (const stop of stopsByKey.values()) add(stop.stop_name);
+	for (const trip of tripsByKey.values()) add(trip.trip_headsign);
+	for (const route of routesByKey.values()) add(route.route_long_name);
+	add(PLACE_WORDS);
+	for (const w of Object.keys(ABBREVIATIONS)) counts.delete(w); // these always become their short form
+	return (vocab = counts);
+};
+export const resetVocab = () => (vocab = undefined);
+
+// Edit distance counting a swap of two neighbouring letters as one edit
+// ("alki" / "alik"), stopping early once it exceeds [max].
+const editDistance = (a: string, b: string, max: number) => {
+	if (Math.abs(a.length - b.length) > max) return max + 1;
+	const rows: number[][] = [];
+	for (let i = 0; i <= a.length; i++) {
+		rows.push([i]);
+		let best = i;
+		for (let j = 1; j <= b.length; j++) {
+			if (i === 0) {
+				rows[0][j] = j;
+				continue;
+			}
+			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+			let d = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost);
+			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d = Math.min(d, rows[i - 2][j - 2] + 1);
+			rows[i][j] = d;
+			best = Math.min(best, d);
+		}
+		if (i > 0 && best > max) return max + 1;
+	}
+	return rows[a.length][b.length];
+};
+
+// The known word a typo most likely meant, or the word itself.
+export const correctWord = (word: string): string => {
+	const words = getVocab();
+	if (word.length < 4 || /\d/.test(word) || words.has(word) || IGNORED.has(word)) return word;
+	// Short words get one edit, or two if the first letter is right
+	// ("akai" -> "alki"); longer words get two.
+	let best: { w: string; score: number } | undefined;
+	for (const [w, count] of words) {
+		if (Math.abs(w.length - word.length) > 2) continue;
+		const d = editDistance(word, w, 2);
+		if (d > 2) continue;
+		const sameStart = w[0] === word[0];
+		if (d === 2 && word.length < 6 && !sameStart) continue;
+		// fewer edits first, then same first letter, then common words
+		const score = d * 1000 - (sameStart ? 500 : 0) - Math.min(count, 499);
+		if (!best || score < best.score) best = { w, score };
+	}
+	return best?.w ?? word;
+};
+
+// The query with each unknown word corrected, or undefined if nothing changed.
+export const correctQuery = (query: string): string | undefined => {
+	const words = tokens(query);
+	const fixed = words.map(correctWord);
+	return fixed.some((w, i) => w !== words[i]) ? fixed.join(" ") : undefined;
+};
+
+// Name search that retries with typos corrected. [query] is what matched.
+export const searchStopsFuzzy = (query: string): { stops: Stop[]; query: string } => {
+	const exact = searchStopsByName(query);
+	if (exact.length) return { stops: exact, query };
+	const fixed = correctQuery(query);
+	if (fixed) {
+		const hits = searchStopsByName(fixed);
+		if (hits.length) return { stops: hits, query: fixed };
+	}
+	return { stops: [], query };
+};
+
+// Geocode as typed, then with typos corrected (an address lookup needs every
+// word to match, so a typo usually finds nothing rather than somewhere wrong).
+export const geocodeFuzzy = async (query: string): Promise<Geo | null> => {
+	const place = await geocode(query);
+	if (place) return place;
+	const fixed = correctQuery(query);
+	return fixed ? geocode(fixed) : null;
 };
 
 // ---------- geocoding ----------
@@ -149,16 +251,16 @@ export const stops = async (query: string) => {
 	const q = query.trim();
 	if (!q) return helpStops();
 
-	const byName = searchStopsByName(q);
+	const { stops: byName, query: matched } = searchStopsFuzzy(q);
 	if (byName.length) {
 		const more = byName.length > MAX_RESULTS ? ` (${byName.length} found)` : "";
-		return [em("🔎", `${shorten(q)}${more}:`), ...byName.slice(0, MAX_RESULTS).map((s) => stopLine(s))].join("\n");
+		return [em("🔎", `${shorten(matched)}${more}:`), ...byName.slice(0, MAX_RESULTS).map((s) => stopLine(s))].join("\n");
 	}
 
 	if (!geocodingEnabled()) return em("❓", "No stops match that. Try cross streets, e.g. stops pine 4th");
 	let place: Geo | null;
 	try {
-		place = await geocode(q);
+		place = await geocodeFuzzy(q);
 	} catch (e) {
 		console.log("Geocoding failed:", (e as Error).message);
 		return em("📴", "No stop names match, and address lookup is offline. Try cross streets, e.g. stops pine 4th");

@@ -21,7 +21,7 @@ import {
 	stopTimesByStop,
 	tripsByKey,
 } from "./gtfs";
-import { geocode, geocodingEnabled, searchStopsByName } from "./commands/stops";
+import { geocodeFuzzy, geocodingEnabled, searchStopsFuzzy } from "./commands/stops";
 import { notePin } from "./pins";
 import { em, routeEmoji } from "./style";
 import { localParts, serviceDays, ServiceDay } from "./time";
@@ -215,12 +215,12 @@ export const resolvePlace = async (
 		if (found) return { cands: aroundStops(n, [found.stop]), label: `${stopRef(found.stop)} ${shortStop(found.stop)}` };
 	}
 	// Cross streets
-	const named = searchStopsByName(q);
+	const { stops: named } = searchStopsFuzzy(q);
 	if (named.length) return { cands: aroundStops(n, named.slice(0, 8)), label: shortStop(named[0]) };
 	// Address or landmark
 	if (!geocodingEnabled()) return { error: em("❓", `Couldn't find "${q}". Try a stop number or cross streets.`) };
 	try {
-		const place = await geocode(q);
+		const place = await geocodeFuzzy(q);
 		if (!place) return { error: em("❓", `Couldn't find "${q}" around Puget Sound.`) };
 		const cands = withinWalk(n, place.lat, place.lon);
 		return cands.size ? { cands, label: q } : { error: em("❓", `No stops within a 10-min walk of "${q}".`) };
