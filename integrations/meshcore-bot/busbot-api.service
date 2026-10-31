@@ -6,6 +6,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# If node came from nvm (or anywhere systemd's PATH doesn't reach), point at it:
+# run `dirname $(which node)` and put the result first here.
+#Environment=PATH=/home/dragon/.nvm/versions/node/v24.12.0/bin:/usr/local/bin:/usr/bin:/bin
 User=dragon
 WorkingDirectory=/home/dragon/BusBot
 ExecStart=/home/dragon/BusBot/node_modules/.bin/tsx --env-file=.env server.ts
