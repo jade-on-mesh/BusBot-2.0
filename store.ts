@@ -6,7 +6,7 @@ import path from "node:path";
 
 const DB_DIR = process.env.DB_DIR || "./db";
 
-const readJson = <T>(name: string, fallback: T): T => {
+export const readJson = <T>(name: string, fallback: T): T => {
 	try {
 		const file = path.join(DB_DIR, name);
 		if (!existsSync(file)) return fallback;
@@ -17,7 +17,7 @@ const readJson = <T>(name: string, fallback: T): T => {
 	}
 };
 
-const writeJson = (name: string, data: unknown) => {
+export const writeJson = (name: string, data: unknown) => {
 	try {
 		mkdirSync(DB_DIR, { recursive: true });
 		const file = path.join(DB_DIR, name);

@@ -319,7 +319,7 @@ describe("help", () => {
 		const ch = (await handleCommand("help", { isDM: false }))!;
 		assert.match(ch, /^Transit:\nbus \[stop\] \[route\]\nstops \[streets\/address\]\nalerts \[stop\]\ninfo stats beats\nhelp \[cmd\] = examples$/);
 		assert.doesNotMatch(ch, /fav/);
-		assert.match((await handleCommand("help", { isDM: true }))!, /\nfav add \[stop\]\n/);
+		assert.match((await handleCommand("help", { isDM: true }))!, /\nfav · watch · commute\n/);
 	});
 	it("uses the words riders type under meshcore-bot, and accepts them as topics", async () => {
 		const say = { bus: "bus", alerts: "busalerts", stops: "stops", fav: "fav", help: "bushelp" };
@@ -492,5 +492,94 @@ describe("outage mode", () => {
 				return realFetch(url);
 			}) as typeof fetch;
 		}
+	});
+});
+
+describe("ride alarms", () => {
+	const realNow = Date.now;
+	let clock = TUE_0810;
+	const rider = { isDM: true, pubKey: "ee".repeat(32), name: "Rider" };
+	let alarms: typeof import("../alarms");
+	before(async () => {
+		Date.now = () => clock;
+		alarms = await import("../alarms");
+		(await import("../realtime")).clearRealtimeCache();
+	});
+	after(() => (Date.now = realNow));
+	const reset = () => {
+		alarms.alarmState.watches.length = 0;
+		alarms.alarmState.commutes.length = 0;
+		alarms.claimOutbox();
+		clock = TUE_0810;
+	};
+	const ask = (msg: string, ctx = rider) => handleCommand(msg, ctx);
+
+	it("watch: skips a bus already inside the window, then DMs once for the next", async () => {
+		reset();
+		assert.equal(
+			await ask("watch 1120 11"),
+			"Watching 11 @ 3rd Ave & Pike St, Bay 2 (1120). I'll DM you when 11 is 5 min away.\n11 is 5 mins away now, so I'll DM you about the one after.",
+		);
+		clock = TUE_0810 + 4 * 60_000; // 8:14 - next 11 (8:20) is 6 min out
+		assert.deepEqual(await alarms.tick(clock), []);
+		clock = TUE_0810 + 5.5 * 60_000; // 8:15:30
+		const due = await alarms.tick(clock);
+		assert.equal(due.length, 1);
+		assert.equal(due[0].pubKey, rider.pubKey);
+		assert.equal(due[0].text, "11 in 4 mins (s) at 3rd Ave & Pike St, Bay 2");
+		assert.deepEqual(await alarms.tick(clock + 30_000), [], "fires once");
+		assert.equal((await alarms.claimOutbox()).length, 1, "queued for the meshcore-bot service");
+	});
+	it("watch: custom lead time, list, cancel, and the cap of 3", async () => {
+		reset();
+		assert.match((await ask("watch 1120 g line 10m"))!, /I'll DM you when G Line is 10 min away/);
+		await ask("watch 11040");
+		await ask("watch ct 1120 201");
+		assert.equal(
+			await ask("watch"),
+			"Watching:\n1) G Line @ 3rd Ave & Pike St, Bay 2 (1120) 10m\n2) Broadway & E Pine St (11040) 5m\n3) 201 @ Everett Station Bay 3 (ct 1120) 5m",
+		);
+		assert.match((await ask("watch 1120 11"))!, /^You can have 3 watches/);
+		assert.equal(await ask("unwatch 2"), "Stopped watching Broadway & E Pine St (11040).");
+		assert.equal(await ask("unwatch"), "Stopped all watches.");
+		assert.equal(await ask("watch"), "No watches. Ex: watch 1120 11");
+	});
+	it("watch: expires after 90 minutes with one notice", async () => {
+		reset();
+		await ask("watch 11040 11"); // its only trip already passed
+		clock = TUE_0810 + 91 * 60_000;
+		const due = await alarms.tick(clock);
+		assert.equal(due.map((d) => d.text).join(), "Watch ended: no 11 came within 90 min at Broadway & E Pine St.");
+		assert.equal(alarms.alarmState.watches.length, 0);
+	});
+	it("commute: weekday digest once, inside its window only", async () => {
+		reset();
+		clock = TUE_0810 - 10 * 60_000; // 8:00
+		assert.equal(await ask("commute 8:05 1120 11"), "Weekdays at 8:05 I'll DM you 11 @ 3rd Ave & Pike St, Bay 2 (1120).");
+		assert.deepEqual(await alarms.tick(clock), [], "not yet");
+		clock = TUE_0810 - 5 * 60_000; // 8:05
+		const due = await alarms.tick(clock);
+		assert.match(due[0].text, /^Commute\n11 @ 3rd Ave & Pike St, Bay 2\n/);
+		assert.deepEqual(await alarms.tick(clock + 60_000), [], "once a day");
+		// Saturday 8:05 (Oct 31): nothing
+		clock = new Date("2026-10-31T15:05:00Z").valueOf();
+		assert.deepEqual(await alarms.tick(clock), []);
+		// Wednesday, but the Pi was down until 8:20: past the 10-minute grace
+		clock = new Date("2026-10-28T15:20:00Z").valueOf();
+		assert.deepEqual(await alarms.tick(clock), []);
+		assert.equal(await ask("commute"), "Weekday commutes:\n1) 8:05 11 @ 3rd Ave & Pike St, Bay 2 (1120)");
+		await ask("commute 5:30pm ct 1120");
+		assert.match((await ask("commute 6pm 1120"))!, /^You can have 2 commutes/);
+		assert.equal(await ask("commute off"), "Cancelled all commutes.");
+	});
+	it("alarms are DM-only and need a known rider", async () => {
+		reset();
+		assert.equal(await ask("watch 1120 11", { isDM: false } as any), undefined);
+		assert.equal(await ask("commute 8:05 1120", { isDM: true } as any), "Alarms work in direct messages only.");
+	});
+	it("reads clock times riders actually type", () => {
+		const t = alarms.parseClock;
+		assert.deepEqual(["8:05", "8:05am", "805", "17:30", "5:30pm", "12am", "12pm", "8"].map(t), [485, 485, 485, 1050, 1050, 0, 720, 480]);
+		assert.deepEqual(["25:00", "8:75", "13pm", "noonish"].map(t), [undefined, undefined, undefined, undefined]);
 	});
 });

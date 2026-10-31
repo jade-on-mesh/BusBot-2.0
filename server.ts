@@ -10,6 +10,7 @@
 import { createServer, IncomingMessage } from "node:http";
 import { feeds, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { liveSummary } from "./realtime";
+import { claimOutbox, startAlarms } from "./alarms";
 import { countQuery, divideReply, handleCommand } from "./router";
 import { flushUsers, isBlocked, saveUsers, toHex, userPlace, users, validPlace } from "./store";
 
@@ -79,6 +80,11 @@ const server = createServer(async (req, res) => {
 				live: liveSummary(),
 			});
 		}
+		// Ride-alarm DMs waiting to be sent. Each is handed out once; the
+		// meshcore-bot service plugin collects them and sends with send_dm.
+		if (req.method === "POST" && req.url === "/outbox/claim") {
+			return send(200, { messages: claimOutbox() });
+		}
 		if (req.method !== "POST" || req.url !== "/command") return send(404, { error: "not found" });
 
 		const { text, isDM = false, name, pubKey, words, lat, lon } = JSON.parse(await readBody(req)) as {
@@ -116,6 +122,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => console.log(`BusBot API listening on http://${HOST}:${PORT}`));
+startAlarms(); // queue alarm DMs for /outbox/claim
 
 const shutdown = () => {
 	flushUsers();

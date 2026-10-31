@@ -1,5 +1,6 @@
 import { Constants, NodeJSSerialConnection } from "@liamcottle/meshcore.js";
 import { info } from "./commands";
+import { OutgoingDm, startAlarms } from "./alarms";
 import { agencyName, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { countQuery, divideReply, handleCommand } from "./router";
 import {
@@ -271,6 +272,14 @@ const drainMessages = async () => {
 
 // ---------- connection events ----------
 
+// Ride alarms: send due DMs straight from the radio.
+const deliverAlarm = async (dm: OutgoingDm) =>
+	sendReplies(
+		divideReply(dm.text),
+		(p) => connection.sendTextMessage(fromHex(dm.pubKey), p, Constants.TxtTypes.Plain),
+		"alarm DM",
+	);
+
 connection.on("connected", async () => {
 	console.log("Connected");
 	try {
@@ -281,6 +290,7 @@ connection.on("connected", async () => {
 		await getBotChannelIdx();
 		await syncContactsToStore();
 		await drainMessages(); // anything that arrived while we were offline
+		startAlarms(deliverAlarm);
 		await checkToAdvertAndInfo();
 	} catch (e) {
 		console.error("Error during startup:", e);

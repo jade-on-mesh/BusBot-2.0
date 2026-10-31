@@ -30,6 +30,15 @@ Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. W
 ## Real-time data
 If `OBA_API_KEY` is set, BusBot asks [OneBusAway Puget Sound](https://www.soundtransit.org/help-contacts/business-information/open-transit-data-otd) first. If that fails or isn't configured, it uses the King County Metro GTFS-RT trip updates feed on top of the static schedule. Responses are cached for 30 seconds.
 
+## Ride alarms
+In a DM to the bot:
+- `watch 1120 11` DMs you once when the next 11 is 5 minutes from stop 1120 (`watch 1120 11 10m` for 10). If a bus is already that close when you ask, it watches for the one after. `watch` lists yours, `unwatch [n]` cancels.
+- `commute 8:05 1120 11` DMs you that stop's arrivals every weekday at 8:05. `commute` lists, `commute off [n]` cancels.
+
+To stay polite on the mesh: 3 watches and 2 commutes per rider, watches end after firing or after 90 minutes (with one notice), commutes run weekdays only and once a day. Alarms survive restarts (`db/alarms.json`).
+
+With meshcore-bot, alarms are sent by `integrations/meshcore-bot/busbot_alarms_service.py`: copy it into meshcore-bot's `local/service_plugins/` and add `[BusBot_Alarms]` with `enabled = true` to `local/config.ini`.
+
 ## Outage mode
 BusBot is built to keep answering when the internet doesn't. Schedules for every agency live on the Pi, so `bus`, `stops` (cross streets) and favorites keep working with no connection at all.
 

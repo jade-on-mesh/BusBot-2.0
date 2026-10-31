@@ -15,10 +15,11 @@ export const help = (isDM = false, say?: Words) => {
 		`${w("stops")} [streets/address]`,
 		`${w("alerts")} [stop]`,
 	];
-	if (isDM) lines.push(`${w("fav")} add [stop]`);
+	if (isDM) lines.push(`${w("fav")} · ${w("watch")} · ${w("commute")}`);
 	// Standalone BusBot also answers these; under meshcore-bot they're its own.
 	if (!say && !isDM) lines.push("info stats beats");
-	lines.push(`${w("help")} [cmd] = examples`);
+	// DM help has one more line, so its footer is shorter to stay one message
+	lines.push(isDM ? `${w("help")} [cmd]` : `${w("help")} [cmd] = examples`);
 	return lines.join("\n");
 };
 
@@ -44,6 +45,18 @@ export const helpBus = (say?: Words) => {
 export const helpFav = (say?: Words) => {
 	const f = word(say, "fav");
 	return `${em("⭐", "DM only, up to 5 stops:")}\n${f} add 11040\n${f} rm 11040\n${f} list\n${f} = arrivals for all`;
+};
+
+// help watch
+export const helpWatch = (say?: Words) => {
+	const x = word(say, "watch");
+	return `${em("🚨", "DM when your bus is close:")}\n${x} 1120 11\n${x} 1120 11 10m\n${x} = list\nun${x} [n]`;
+};
+
+// help commute
+export const helpCommute = (say?: Words) => {
+	const c = word(say, "commute");
+	return `${em("⏰", "Weekday DM of arrivals:")}\n${c} 8:05 1120 11\n${c} 5:30pm ct 1120\n${c} = list\n${c} off [n]`;
 };
 
 // help info
