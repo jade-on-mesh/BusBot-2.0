@@ -19,6 +19,8 @@ import {
 	ping,
 	pong,
 	stats,
+	stops,
+	helpStops,
 } from "./commands";
 import { isAdmin } from "./store";
 
@@ -51,6 +53,7 @@ export const handleCommand = async (
 				if (topic === "fav") return helpFav();
 				if (topic === "info") return helpInfo();
 				if (topic === "stats") return helpStats();
+				if (topic === "stops") return helpStops();
 				if (topic === "admin" && isAdmin(ctx.pubKey)) return helpAdmin();
 				return help(ctx.isDM);
 			}
@@ -64,6 +67,8 @@ export const handleCommand = async (
 				if (command === "bus") return routeId ? busStopAndRoute(stopId, routeId) : busStop(stopId);
 				return routeId ? alertsStopAndRoute(stopId, routeId) : alertsStop(stopId);
 			}
+			case "stops":
+				return stops(args.join(" "));
 			case "fav":
 			case "favs":
 			case "favorites":

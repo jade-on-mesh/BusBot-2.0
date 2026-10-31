@@ -2,7 +2,7 @@ import { emojiOn } from "../style";
 
 // help
 export const help = (isDM = false) => {
-	return `Commands:\n• alerts\n• bus${isDM ? "\n• fav" : ""}\n• info\n---\n• beats\n• stats`;
+	return `Commands:\n• alerts\n• bus\n• stops${isDM ? "\n• fav" : ""}\n• info\n---\n• beats\n• stats`;
 };
 
 // help alerts

@@ -274,3 +274,42 @@ describe("emoji", () => {
 		for (const p of divideReply(emojiWall)) assert.match(p, /^(🚌)+$/u);
 	});
 });
+
+describe("stops search", () => {
+	const realFetch = globalThis.fetch;
+	after(() => {
+		globalThis.fetch = realFetch;
+		process.env.GEOCODE = "";
+	});
+	it("finds stops by cross streets, any order, with abbreviations and ordinals", async () => {
+		for (const q of ["pike 3rd", "third avenue and pike street", "3 pike", "PIKE & 3RD AVE"]) {
+			assert.equal(
+				await handleCommand(`stops ${q}`, { isDM: false }),
+				`${q.toLowerCase()}:\n1120 3rd Ave & Pike St, Bay 2 → 11, G Line`,
+				q,
+			);
+		}
+		assert.match((await handleCommand("stops broadway east pine", { isDM: false }))!, /^broadway east pine:\n11040 Broadway & E Pine St → 11$/);
+	});
+	it("doesn't let one-letter directions match everything", async () => {
+		process.env.GEOCODE = "off";
+		assert.match((await handleCommand("stops e", { isDM: false }))!, /No stops match/);
+	});
+	it("falls back to geocoding and lists nearest stops with distance", async () => {
+		process.env.GEOCODE = "on";
+		let url = "";
+		globalThis.fetch = (async (u: string) => {
+			url = String(u);
+			// a point ~110 m north of stop 11040
+			return new Response(JSON.stringify([{ lat: "47.611", lon: "-122.32", name: "Somewhere on Broadway" }]));
+		}) as typeof fetch;
+		const reply = await handleCommand("stops 1100 broadway", { isDM: false });
+		assert.match(url, /nominatim\.openstreetmap\.org\/search\?q=1100\+broadway.*bounded=1/);
+		assert.match(reply!, /^Near Somewhere on Broadway:\n11040 Broadway & E Pine St · 350 ft → 11\n1120 3rd Ave & Pike St, Bay 2 · 1\.2 mi → 11, G Line$/);
+	});
+	it("says so when the place isn't in King County", async () => {
+		process.env.GEOCODE = "on";
+		globalThis.fetch = (async () => new Response("[]")) as unknown as typeof fetch;
+		assert.match((await handleCommand("stops zzzz nowhere", { isDM: false }))!, /Couldn't find that in King County/);
+	});
+});

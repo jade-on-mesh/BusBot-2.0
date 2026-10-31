@@ -21,7 +21,13 @@ const load = (name: string, required = true): Record<string, string>[] => {
 	return rows;
 };
 
-export type Stop = { stop_id: string; stop_code?: string; stop_name: string };
+export type Stop = {
+	stop_id: string;
+	stop_code?: string;
+	stop_name: string;
+	stop_lat?: string;
+	stop_lon?: string;
+};
 export type Route = {
 	route_id: string;
 	route_short_name: string;
