@@ -1,0 +1,16 @@
+# BusBot radio-less API for the meshcore-bot plugin.
+# Install: sudo cp busbot-api.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now busbot-api
+[Unit]
+Description=BusBot transit API (local, for meshcore-bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dragon
+WorkingDirectory=/home/dragon/BusBot
+ExecStart=/home/dragon/BusBot/node_modules/.bin/tsx --env-file=.env server.ts
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

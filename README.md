@@ -30,6 +30,15 @@ A companion radio can only hold so many contacts, and it can only read DMs from 
 ## Moderation
 Set `ADMIN_KEYS` to your own public key (or a 6+ hex character prefix of it). Admins can DM `block name Some Name` or `block key a1b2c3` to stop the bot answering someone, in channel or by DM. Blocks are saved in `db/blocklist.json`. `BLOCKED_NAMES` and `BLOCKED_KEYS` in `.env` are applied as well.
 
+## Sharing a radio with meshcore-bot
+BusBot can run without its own radio and answer through meshcore-bot instead:
+
+1. `npm run serve` starts a local-only API on `127.0.0.1:8787` (`BUSBOT_PORT` to change). Run it as a service with `integrations/meshcore-bot/busbot-api.service`.
+2. Copy `integrations/meshcore-bot/busbot_command.py` into meshcore-bot's `local/commands/` folder and restart meshcore-bot.
+3. Riders use `bus`, `alerts` and `fav` on whatever channels meshcore-bot monitors. Options (URL, keyword renames) go in meshcore-bot's `local/config.ini` under `[BusBot_Command]`; see the top of the plugin file.
+
+In this mode meshcore-bot owns the contacts, so BusBot's contact eviction doesn't apply. `SERIAL_PORT`, `NODE_NAME` and `BOT_CHANNEL` aren't needed.
+
 ## Development
 - `npm test` runs the test suite against synthetic GTFS in `test/fixtures` (no network or radio needed)
 - `npm run typecheck`
