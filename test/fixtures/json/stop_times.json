@@ -1,0 +1,10 @@
+[
+{"trip_id":"T_LATE","arrival_time":"07:50:00","departure_time":"07:50:00","stop_id":"11040","stop_sequence":"4"},
+{"trip_id":"T_LATE","arrival_time":"08:00:00","departure_time":"08:00:00","stop_id":"1120","stop_sequence":"9"},
+{"trip_id":"T_NEXT","arrival_time":"08:20:00","departure_time":"08:20:00","stop_id":"1120","stop_sequence":"9"},
+{"trip_id":"T_CANCEL","arrival_time":"08:12:00","departure_time":"08:12:00","stop_id":"1120","stop_sequence":"9"},
+{"trip_id":"T_G1","arrival_time":"08:13:00","departure_time":"08:13:00","stop_id":"1120","stop_sequence":"2"},
+{"trip_id":"T_OWL","arrival_time":"24:40:00","departure_time":"24:40:00","stop_id":"1120","stop_sequence":"9"},
+{"trip_id":"T_OLD","arrival_time":"08:11:00","departure_time":"08:11:00","stop_id":"1120","stop_sequence":"9"},
+{"trip_id":"T_HOL","arrival_time":"08:14:00","departure_time":"08:14:00","stop_id":"1120","stop_sequence":"9"}
+]

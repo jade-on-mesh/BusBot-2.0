@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_type
+100011,1,"11","Madison Park - Downtown",3
+102745,1,"G Line","RapidRide G Line",3

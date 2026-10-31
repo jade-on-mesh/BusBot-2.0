@@ -1,0 +1,9 @@
+[
+{"route_id":"100011","service_id":"WKDY","trip_id":"T_LATE","trip_headsign":"Downtown, Pine St","direction_id":"0"},
+{"route_id":"100011","service_id":"WKDY","trip_id":"T_NEXT","trip_headsign":"Downtown","direction_id":"0"},
+{"route_id":"100011","service_id":"WKDY","trip_id":"T_CANCEL","trip_headsign":"Downtown","direction_id":"0"},
+{"route_id":"102745","service_id":"WKDY","trip_id":"T_G1","trip_headsign":"Madison Valley","direction_id":"1"},
+{"route_id":"100011","service_id":"WKDY","trip_id":"T_OWL","trip_headsign":"Downtown","direction_id":"0"},
+{"route_id":"100011","service_id":"OLD","trip_id":"T_OLD","trip_headsign":"Downtown","direction_id":"0"},
+{"route_id":"100011","service_id":"HOL","trip_id":"T_HOL","trip_headsign":"Downtown","direction_id":"0"}
+]

@@ -1,363 +1,359 @@
-import { NodeJSSerialConnection, Constants } from "@liamcottle/meshcore.js";
+import { Constants, NodeJSSerialConnection } from "@liamcottle/meshcore.js";
+import { info } from "./commands";
+import { feedInfo, loadGtfs } from "./gtfs";
+import { countQuery, divideReply, handleCommand } from "./router";
 import {
-	alertsStop,
-	alertsStopAndRoute,
-	beats,
-	busStop,
-	busStopAndRoute,
-	help,
-	helpAlerts,
-	helpBeats,
-	helpBus,
-	helpInfo,
-	info,
-	ping,
-	pong,
-	stats,
-} from "./commands";
-import { readFileSync, writeFileSync } from "node:fs";
-import { FeedInfo } from "./types";
+	findUserByPrefix,
+	flushUsers,
+	fromHex,
+	isAdmin,
+	isBlocked,
+	saveState,
+	saveUsers,
+	state,
+	toHex,
+	User,
+	users,
+} from "./store";
+import { parseGtfsDate } from "./time";
 
-// Check for environment variables
-if (!process.env.SERIAL_PORT) {
-	throw new Error("Missing SERIAL_PORT");
-}
+// ---------- config ----------
 
-let validQueryCount = 0;
-
-const loadFeedInfo = async (): Promise<FeedInfo> => {
-	let info;
-	try {
-		info = await JSON.parse(readFileSync("./metro/json/feed_info.json", "utf-8"))?.[0];
-	} catch (e) {
-		console.error("Error reading feed info:", e);
-	} finally {
-		return info;
-	}
+const requireEnv = (name: string) => {
+	const v = process.env[name];
+	if (!v) throw new Error(`Missing ${name} in .env`);
+	return v;
 };
+const SERIAL_PORT = requireEnv("SERIAL_PORT");
+const NODE_NAME = requireEnv("NODE_NAME");
+const BOT_CHANNEL = requireEnv("BOT_CHANNEL");
+const MAX_CONTACTS = parseInt(process.env.MAX_CONTACTS || "90"); // leave headroom below the radio's limit
+const SEND_SPACING_MS = parseInt(process.env.SEND_SPACING_MS || "2000");
+const ADVERT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const FEED_WARNING_MS = 14 * 24 * 60 * 60 * 1000;
 
-let feedInfo = await loadFeedInfo();
+const COMPANION = 1; // contact type for chat nodes
 
-const loadLastAdvertTime = async (): Promise<number | undefined> => {
-	let lastAdvert;
-	try {
-		lastAdvert = await JSON.parse(readFileSync("./db/lastAdvert.json", "utf-8"))?.lastAdvert;
-	} catch (e) {
-		console.error("Error reading last advert from db:", e);
-	} finally {
-		return lastAdvert;
-	}
-};
+loadGtfs();
 
-let lastBotAdvert = await loadLastAdvertTime(); // Date.now()
+const connection = new NodeJSSerialConnection(SERIAL_PORT);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Create connection to companion radio
-const connection = new NodeJSSerialConnection(process.env.SERIAL_PORT);
-
-// Auto Advert and Info
-const checkToAdvertAndInfo = async () => {
-	// wait at least 7 days for next advert and info command
-	const currentTime = Date.now();
-	if (!lastBotAdvert || currentTime - lastBotAdvert > 7 * 24 * 60 * 60 * 1000) {
-		try {
-			console.log("Sending Advert");
-			await connection.sendFloodAdvert();
-			lastBotAdvert = currentTime;
-			writeFileSync("./db/lastAdvert.json", JSON.stringify({ lastAvert: currentTime }));
-
-			if (!process.env.BOT_CHANNEL) {
-				throw new Error("Missing BOT_CHANNEL");
-			}
-			const commandChannel = await connection.findChannelByName(process.env.BOT_CHANNEL);
-			setTimeout(async () => {
-				await connection.sendChannelTextMessage(commandChannel.channelIdx, info());
-			}, 5000);
-
-			// If the current time is greater than the end date minus 14 days, notify channel
-			if (Date.now() > new Date(feedInfo.feed_end_date).valueOf() - 14 * 24 * 60 * 60 * 1000) {
-				setTimeout(async () => {
-					await connection.sendChannelTextMessage(
-						commandChannel.channelIdx,
-						"Feed expiring soon! Update required or everything breaks.",
-					);
-				}, 5000);
-			}
-		} catch (e) {
-			console.log("Error sending advert", e);
-		}
-	}
-};
-
-// Initial Setup
-connection.on("connected", async () => {
-	console.log("Connected");
-
-	// Sync Time
-	console.log("Syncing Time...");
-	await connection.syncDeviceTime();
-	console.log("Time Synced");
-
-	if (!process.env.NODE_NAME) {
-		throw new Error("Missing NODE_NAME");
-	}
-	// Set Name
-	await connection.setAdvertName(process.env.NODE_NAME);
-
-	await connection.setManualAddContacts();
-
-	checkToAdvertAndInfo();
-});
-
-connection.on(Constants.PushCodes.MsgWaiting, async () => {
-	try {
-		const waitingMessages = await connection.getWaitingMessages();
-
-		waitingMessages.forEach((message: any) => {
-			if (message.contactMessage) {
-				handleContactMessage(message.contactMessage);
-			} else if (message.channelMessage) {
-				handleChannelMessage(message.channelMessage);
-			}
-		});
-	} catch (error) {
-		console.log(error);
-	}
-});
-
-const handleCommand = async (cleanedMessage: string): Promise<string | undefined> => {
-	let reply = "";
-	try {
-		if (cleanedMessage.startsWith("help")) {
-			if (cleanedMessage === "help alerts") {
-				reply = helpAlerts();
-			} else if (cleanedMessage === "help beats") {
-				reply = helpBeats();
-			} else if (cleanedMessage === "help bus") {
-				reply = helpBus();
-			} else if (cleanedMessage === "help info") {
-				reply = helpInfo();
-			} else {
-				reply = help();
-			}
-		} else if (cleanedMessage.startsWith("info")) {
-			reply = info();
-		} else if (cleanedMessage.startsWith("alerts")) {
-			const firstSpaceIndex = cleanedMessage.indexOf(" "); // Space after the word alerts
-			if (firstSpaceIndex === -1) {
-				// If no space found, return help
-				reply = helpAlerts();
-			} else if (firstSpaceIndex !== 6) {
-				// If the first space isn't the seventh character, then this isn't a command to answer
-				return;
-			} else {
-				const secondSpaceIndex = cleanedMessage.indexOf(" ", firstSpaceIndex + 1);
-				if (secondSpaceIndex === -1) {
-					// If there's no second space found, then this is a stopId only
-					const stopId = cleanedMessage.slice(firstSpaceIndex + 1);
-					reply = await alertsStop(stopId);
-				} else {
-					const stopId = cleanedMessage.slice(firstSpaceIndex + 1, secondSpaceIndex);
-					const routeId = cleanedMessage.slice(secondSpaceIndex + 1);
-					reply = await alertsStopAndRoute(stopId, routeId);
-				}
-			}
-		} else if (cleanedMessage.startsWith("bus")) {
-			const firstSpaceIndex = cleanedMessage.indexOf(" "); // Space after the word bus
-			if (firstSpaceIndex === -1) {
-				// If no space found, return help
-				reply = helpBus();
-			} else if (firstSpaceIndex !== 3) {
-				// If the first space isn't the fourth character, then this isn't a command to answer
-				return;
-			} else {
-				const secondSpaceIndex = cleanedMessage.indexOf(" ", firstSpaceIndex + 1);
-				if (secondSpaceIndex === -1) {
-					// If there's no second space found, then this is a stopId only
-					const stopId = cleanedMessage.slice(firstSpaceIndex + 1);
-					reply = await busStop(stopId);
-				} else {
-					const stopId = cleanedMessage.slice(firstSpaceIndex + 1, secondSpaceIndex);
-					const routeId = cleanedMessage.slice(secondSpaceIndex + 1);
-					reply = await busStopAndRoute(stopId, routeId);
-				}
-			}
-		} else if (cleanedMessage.startsWith("beats")) {
-			reply = beats();
-		} else if (cleanedMessage.startsWith("ping")) {
-			reply = ping();
-		} else if (cleanedMessage.startsWith("pong")) {
-			reply = pong();
-		} else if (cleanedMessage.startsWith("stats")) {
-			reply = stats(validQueryCount);
-		} else {
-			// no command found, ignore this message
-			return;
-		}
-	} catch (e) {
-		reply = "There was an error running this command.";
-	} finally {
-		return reply;
-	}
-};
-
-const divideReply = (message: string) => {
-	// 150 (max channel message size) - 32 (max name size) - 3 (mandatory channel message characters)
-	const MAX_LENGTH = 115;
-	let messageLength = message.length;
-	let messageCount = 1;
-
-	while (messageLength > MAX_LENGTH) {
-		messageCount = messageCount + 1;
-		messageLength = Math.ceil(messageLength / messageCount);
-	}
-
-	// return early if no split needed
-	if (messageCount === 1) {
-		return [message];
-	}
-
-	const segmenter = new Intl.Segmenter(process.env.LANGUAGE_CODE ?? "en", { granularity: "word" });
-	const words = Array.from(segmenter.segment(message));
-
-	const replies: string[] = [];
-	let currentReplyIndex = 0;
-
-	words.forEach(({ segment }) => {
-		if (
-			replies[currentReplyIndex]?.length &&
-			replies[currentReplyIndex].length + segment.length > messageLength
-		) {
-			currentReplyIndex = currentReplyIndex + 1;
-		}
-		replies[currentReplyIndex] = (replies[currentReplyIndex] ?? "") + segment;
+// ---------- radio queue ----------
+// meshcore.js matches replies to commands by response code (Ok/Err), so two
+// commands in flight at once can resolve each other's promises. Every radio
+// operation goes through this one queue. It also spaces outgoing messages so
+// multi-part replies arrive in order and don't flood the mesh. (The original
+// wrapped setTimeout in Promise.all, which awaited nothing and let send errors
+// become unhandled rejections.)
+const RADIO_TIMEOUT_MS = 20_000;
+let radioQueue: Promise<unknown> = Promise.resolve();
+const withRadio = <T = any>(fn: () => Promise<T> | T, label = "radio op"): Promise<T | undefined> => {
+	// A command the radio never answers must not wedge the queue forever.
+	const timed = () =>
+		Promise.race([
+			Promise.resolve().then(fn),
+			sleep(RADIO_TIMEOUT_MS).then(() => {
+				throw new Error(`timed out after ${RADIO_TIMEOUT_MS / 1000}s`);
+			}),
+		]);
+	const run = radioQueue.then(timed).catch((e) => {
+		console.error(`Error during ${label}:`, e);
+		return undefined;
 	});
-
-	return replies;
+	radioQueue = run;
+	return run;
 };
+
+const sendReplies = async (parts: string[], send: (part: string) => Promise<unknown>, label: string) => {
+	for (const part of parts) {
+		await withRadio(async () => {
+			await send(part);
+			await sleep(SEND_SPACING_MS);
+		}, label);
+	}
+};
+
+// ---------- channel ----------
+
+let botChannelIdx: number | undefined;
+const getBotChannelIdx = async () => {
+	if (botChannelIdx !== undefined) return botChannelIdx;
+	const channel = await withRadio(() => connection.findChannelByName(BOT_CHANNEL), "find channel");
+	if (!channel) {
+		console.error(`Channel ${BOT_CHANNEL} not found on the radio. Add it in the companion app.`);
+		return undefined;
+	}
+	botChannelIdx = channel.channelIdx;
+	return botChannelIdx;
+};
+
+const sendToChannel = async (text: string) => {
+	const idx = await getBotChannelIdx();
+	if (idx === undefined) return;
+	await sendReplies(divideReply(text), (p) => connection.sendChannelTextMessage(idx, p), "channel send");
+};
+
+// ---------- advert + feed expiry ----------
+
+const checkToAdvertAndInfo = async () => {
+	const now = Date.now();
+	if (state.lastAdvert && now - state.lastAdvert < ADVERT_INTERVAL_MS) return;
+	state.lastAdvert = now;
+	saveState();
+
+	console.log("Sending advert");
+	await withRadio(() => connection.sendFloodAdvert(), "flood advert");
+	await sleep(5000);
+	await sendToChannel(info());
+
+	const end = feedInfo?.feed_end_date ? parseGtfsDate(feedInfo.feed_end_date) : undefined;
+	if (end && now > end.valueOf() - FEED_WARNING_MS) {
+		const expired = now > end.valueOf() + 24 * 60 * 60 * 1000;
+		const msg = expired
+			? "Schedule data has expired. Times marked (s) may be wrong until the feed is updated."
+			: "Schedule data expires soon. The bot operator needs to update the GTFS feed.";
+		console.warn(msg, feedInfo?.feed_end_date);
+		await sendToChannel(msg);
+	}
+};
+
+// ---------- users & contacts (issue #3) ----------
+
+const userFromAdvert = (advert: any, existing?: User): User => ({
+	pubKey: toHex(advert.publicKey),
+	advName: advert.advName,
+	favoriteStops: existing?.favoriteStops ?? [],
+	firstSeen: existing?.firstSeen ?? Date.now(),
+	lastSeen: Date.now(),
+	lastActive: existing?.lastActive,
+	type: advert.type,
+	flags: advert.flags,
+	outPathLen: advert.outPathLen,
+	outPath: toHex(advert.outPath),
+	lastAdvert: advert.lastAdvert,
+	advLat: advert.advLat,
+	advLon: advert.advLon,
+});
+
+// Least recently active first (DM'd the bot), then least recently heard.
+const evictionScore = (pubKey: string) => {
+	const u = users.get(pubKey);
+	return Math.max(u?.lastActive ?? 0, (u?.lastSeen ?? 0) - 30 * 24 * 60 * 60 * 1000);
+};
+
+// The radio only holds so many contacts, and it can only decrypt DMs from
+// contacts it holds. BusBot keeps every user on disk and treats the radio's
+// contact table as a cache: when it's full, the least recently active
+// companion is removed to make room. Their favorites stay on disk, and their
+// next advert puts them back.
+const ensureContactOnRadio = async (user: User) => {
+	await withRadio(async () => {
+		const contacts: any[] = await connection.getContacts();
+		const key = user.pubKey;
+		const onRadio = contacts.some((c) => toHex(c.publicKey) === key);
+		const companions = contacts.filter((c) => c.type === COMPANION);
+
+		if (!onRadio && companions.length >= MAX_CONTACTS) {
+			const victims = companions
+				.map((c) => toHex(c.publicKey))
+				.filter((k) => !isAdmin(k))
+				.sort((a, b) => evictionScore(a) - evictionScore(b));
+			const victim = victims[0];
+			if (!victim) {
+				console.log("Contact table full of admins; not adding", user.advName);
+				return;
+			}
+			console.log("Contact table full, evicting", users.get(victim)?.advName ?? victim.slice(0, 12));
+			await connection.removeContact(fromHex(victim));
+		}
+
+		await connection.addOrUpdateContact(
+			fromHex(user.pubKey),
+			user.type,
+			user.flags,
+			user.outPathLen,
+			fromHex(user.outPath),
+			user.advName,
+			user.lastAdvert,
+			user.advLat,
+			user.advLon,
+		);
+	}, "add contact");
+};
+
+// Import contacts already on the radio so existing users aren't evicted first.
+const syncContactsToStore = async () => {
+	const contacts = await withRadio(() => connection.getContacts(), "get contacts");
+	for (const c of contacts ?? []) {
+		if (c.type !== COMPANION) continue;
+		const key = toHex(c.publicKey);
+		if (!users.has(key)) users.set(key, { ...userFromAdvert(c), lastSeen: (c.lastAdvert ?? 0) * 1000 });
+	}
+	flushUsers();
+};
+
+// ---------- incoming messages ----------
 
 const handleContactMessage = async (message: any) => {
-	console.log("Contact Message Received");
-
-	const contact = await connection.findContactByPublicKeyPrefix(message.pubKeyPrefix);
+	const contact = await withRadio(
+		() => connection.findContactByPublicKeyPrefix(message.pubKeyPrefix),
+		"find contact",
+	);
+	const pubKey = contact ? toHex(contact.publicKey) : findUserByPrefix(message.pubKeyPrefix)?.pubKey;
 	if (!contact) {
-		console.log("No contact found for message");
+		console.log("DM from unknown contact", toHex(message.pubKeyPrefix));
 		return;
 	}
-	const cleanedMessage = message.text.trim().toLowerCase();
-
-	const reply = await handleCommand(cleanedMessage);
-
-	if (reply) {
-		const replies = divideReply(reply);
-		await Promise.all(
-			replies.map((replyPart, index) => {
-				setTimeout(
-					async () => {
-						await connection.sendTextMessage(
-							contact.publicKey,
-							replyPart,
-							Constants.TxtTypes.Plain,
-						);
-					},
-					(index + 1) * 2000,
-				);
-			}),
-		);
-		validQueryCount = validQueryCount + 1;
+	const name = contact.advName;
+	if (isBlocked({ name, pubKey })) {
+		console.log("Ignoring blocked DM from", name);
+		return;
 	}
+	const user = pubKey ? users.get(pubKey) : undefined;
+	if (user) {
+		user.lastActive = Date.now();
+		saveUsers();
+	}
+
+	const reply = await handleCommand(message.text, { isDM: true, pubKey, name });
+	if (!reply) return;
+	countQuery();
+	await sendReplies(
+		divideReply(reply),
+		(p) => connection.sendTextMessage(contact.publicKey, p, Constants.TxtTypes.Plain),
+		"DM send",
+	);
 };
 
 const handleChannelMessage = async (message: any) => {
-	console.log("Channel Message Received");
-	if (!process.env.BOT_CHANNEL) {
-		throw new Error("Missing BOT_CHANNEL");
+	const idx = await getBotChannelIdx();
+	if (idx === undefined || message.channelIdx !== idx) return;
+
+	// Channel text is "Sender Name: message"
+	const text: string = message.text ?? "";
+	const sep = text.indexOf(": ");
+	const name = sep >= 0 ? text.slice(0, sep) : "";
+	const body = sep >= 0 ? text.slice(sep + 2) : text;
+	if (isBlocked({ name })) {
+		console.log("Ignoring blocked channel message from", name);
+		return;
 	}
-	const commandChannel = await connection.findChannelByName(process.env.BOT_CHANNEL);
 
-	if (message.channelIdx === commandChannel.channelIdx) {
-		// remove the colon and the following space
-		const separatorIndex = message.text.trim().indexOf(":");
-		const cleanedMessage: string = message.text.slice(separatorIndex + 2).toLowerCase();
+	const reply = await handleCommand(body, { isDM: false, name });
+	if (!reply) return;
+	countQuery();
+	await sendToChannel(reply);
+};
 
-		const reply = await handleCommand(cleanedMessage);
+let drainingMessages = false;
+const drainMessages = async () => {
+	if (drainingMessages) return;
+	drainingMessages = true;
+	try {
+		const waiting = (await withRadio(() => connection.getWaitingMessages(), "get messages")) ?? [];
+		for (const message of waiting) {
+			try {
+				if (message.contactMessage) await handleContactMessage(message.contactMessage);
+				else if (message.channelMessage) await handleChannelMessage(message.channelMessage);
+			} catch (e) {
+				console.error("Error handling message:", e);
+			}
+		}
+	} finally {
+		drainingMessages = false;
+	}
+};
 
-		if (reply) {
-			const replies = divideReply(reply);
-			await Promise.all(
-				replies.map((replyPart, index) => {
-					setTimeout(
-						async () => {
-							await connection.sendChannelTextMessage(commandChannel.channelIdx, replyPart);
-						},
-						(index + 1) * 2000,
-					);
-				}),
-			);
-			validQueryCount = validQueryCount + 1;
+// ---------- connection events ----------
+
+connection.on("connected", async () => {
+	console.log("Connected");
+	try {
+		await withRadio(() => connection.syncDeviceTime(), "sync time");
+		await withRadio(() => connection.setAdvertName(NODE_NAME), "set name");
+		await withRadio(() => connection.setManualAddContacts(), "manual add contacts");
+		botChannelIdx = undefined;
+		await getBotChannelIdx();
+		await syncContactsToStore();
+		await drainMessages(); // anything that arrived while we were offline
+		await checkToAdvertAndInfo();
+	} catch (e) {
+		console.error("Error during startup:", e);
+	}
+});
+
+connection.on(Constants.PushCodes.MsgWaiting, () => {
+	drainMessages().catch((e) => console.error("Error draining messages:", e));
+});
+
+// Advert from a contact already on the radio: refresh last-heard time and
+// drop any non-companion contacts (repeaters, rooms) the radio auto-added.
+connection.on(Constants.PushCodes.Advert, async (advert: any) => {
+	try {
+		const user = users.get(toHex(advert.publicKey));
+		if (user) {
+			user.lastSeen = Date.now();
+			saveUsers();
+		}
+		const contacts = (await withRadio(() => connection.getContacts(), "get contacts")) ?? [];
+		for (const c of contacts.filter((c: any) => c.type !== COMPANION)) {
+			console.log("Removing non-companion contact:", c.advName);
+			await withRadio(() => connection.removeContact(c.publicKey), "remove contact");
+		}
+		await checkToAdvertAndInfo();
+	} catch (e) {
+		console.error("Error handling advert:", e);
+	}
+});
+
+// Advert from someone not on the radio (manual-add mode).
+connection.on(Constants.PushCodes.NewAdvert, async (advert: any) => {
+	if (advert.type !== COMPANION) return;
+	try {
+		const key = toHex(advert.publicKey);
+		if (isBlocked({ name: advert.advName, pubKey: key })) return;
+		const user = userFromAdvert(advert, users.get(key));
+		users.set(key, user);
+		saveUsers();
+		console.log("Companion advert:", user.advName);
+		await ensureContactOnRadio(user);
+		await checkToAdvertAndInfo();
+	} catch (e) {
+		console.error("Error adding or updating contact:", e);
+	}
+});
+
+// Reconnect with backoff instead of hammering a missing serial port.
+let reconnectDelay = 2000;
+const connect = async () => {
+	while (true) {
+		try {
+			await connection.connect();
+			reconnectDelay = 2000;
+			return;
+		} catch (e) {
+			console.error(`Connect failed, retrying in ${reconnectDelay / 1000}s:`, (e as Error).message);
+			await sleep(reconnectDelay);
+			reconnectDelay = Math.min(reconnectDelay * 2, 60_000);
 		}
 	}
 };
 
-// Clean up contacts with auto-add contacts on
-connection.on(Constants.PushCodes.Advert, async () => {
-	const contacts = await connection.getContacts();
-	// Filter out users and remove any room servers and repeaters
-	contacts
-		.filter(({ type }: { type: number }) => type !== 1)
-		.map(({ publicKey, advName }: { publicKey: any; advName: string }) => {
-			console.log("Removing Contact:", advName);
-			connection.removeContact(publicKey);
-		});
-
-	checkToAdvertAndInfo();
-});
-
-// publicKey: bufferReader.readBytes(32),
-// type: bufferReader.readByte(),
-// flags: bufferReader.readByte(),
-// outPathLen: bufferReader.readInt8(),
-// outPath: bufferReader.readBytes(64),
-// advName: bufferReader.readCString(32),
-// lastAdvert: bufferReader.readUInt32LE(),
-// advLat: bufferReader.readUInt32LE(),
-// advLon: bufferReader.readUInt32LE(),
-// lastMod: bufferReader.readUInt32LE(),
-connection.on(Constants.PushCodes.NewAdvert, async (advert: any) => {
-	if (advert.type === 1) {
-		console.log("Companion advert receieved");
-		try {
-			const { publicKey, type, flags, outPathLen, outPath, advName, lastAdvert, advLat, advLon } =
-				advert;
-
-			const contacts = await connection.getContacts();
-
-			if (contacts.length < 100) {
-				await connection.addOrUpdateContact(
-					publicKey,
-					type,
-					flags,
-					outPathLen,
-					outPath,
-					advName,
-					lastAdvert,
-					advLat,
-					advLon,
-				);
-			} else {
-				console.log("Too many contacts. Clear some up.");
-			}
-
-			await checkToAdvertAndInfo();
-		} catch (e) {
-			console.log("Error adding or updating contact", e);
-		}
-	}
-});
-
 connection.on("disconnected", async () => {
 	console.log("Disconnected");
-	await connection.connect();
+	radioQueue = Promise.resolve(); // drop anything waiting on the dead link
+	await sleep(reconnectDelay);
+	await connect();
 });
 
-// Connect to companion
-await connection.connect();
+const shutdown = () => {
+	console.log("Shutting down");
+	flushUsers();
+	process.exit(0);
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+process.on("unhandledRejection", (e) => console.error("Unhandled rejection:", e));
+
+await connect();

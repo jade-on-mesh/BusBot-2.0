@@ -1,199 +1,136 @@
-import { readFileSync } from "node:fs";
-import { prettyTime, TimeString } from "../utils";
+import { findRoute, findStop, isServiceActive, Route, routesById, shortName, Stop, stopTimesByStop, tripsById } from "../gtfs";
+import { getObaArrivals, getTripUpdates, obaEnabled, StopTimeUpdate, TripUpdate } from "../realtime";
+import { prettyTime, serviceDays } from "../time";
 
-const calendar = await JSON.parse(readFileSync("./metro/json/calendar.json", "utf8"));
-const routes = await JSON.parse(readFileSync("./metro/json/routes.json", "utf8"));
-const stops = await JSON.parse(readFileSync("./metro/json/stops.json", "utf8"));
-const stopTimes = await JSON.parse(readFileSync("./metro/json/stop_times.json", "utf8"));
-const trips = await JSON.parse(readFileSync("./metro/json/trips.json", "utf8"));
-
-type TripUpdate = {
-  id: string;
-  trip_update: {
-    trip: {
-      trip_id: string;
-      direction_id: number;
-      route_id: string;
-      start_date: string;
-      schedule_relationship: string;
-    };
-    stop_time_update: {
-      stop_sequence: number;
-      stop_id: string;
-      arrival: {
-        delay: number;
-        time: number;
-      };
-      departure: {
-        delay: number;
-        time: number;
-      };
-      schedule_relationship: string;
-    }[];
-  };
+export type Arrival = {
+	routeId: string;
+	routeName: string;
+	epochMs: number;
+	realtime: boolean;
 };
 
-const getTripUpdates = async () => {
-  let tripUpdates: TripUpdate[] = [];
-  try {
-    const tripUpdatesUrl = process.env.METRO_GTFS_RT_TRIP_UPDATES_FEED;
-    if (tripUpdatesUrl) {
-      const response = await fetch(tripUpdatesUrl);
-      const data = await response.json();
-      const { entity } = data;
-      if (entity.length) {
-        tripUpdates = entity;
-      }
-    }
-  } catch (e) {
-    console.log("Error getting realtime data:", e);
-  }
-  return tripUpdates;
-};
-export const busStop = async (stopId: string) => {
-  let reply = "";
-  const stop = stops.find((stop: any) => stop.stop_id === stopId);
-  if (!stop) {
-    return "No stop found with that id.";
-  }
+// How far back to look at scheduled times. A bus scheduled 20 minutes ago
+// that is running 25 minutes late is still the next bus — the original code
+// filtered on scheduled time >= now, which is why it "skipped the first bus".
+const LOOKBACK_MS = 60 * 60 * 1000;
+const LOOKAHEAD_MS = 4 * 60 * 60 * 1000;
+const GRACE_MS = 60 * 1000; // keep a bus for a minute after its arrival time
 
-  const tripUpdates = await getTripUpdates();
-
-  const currentTime = new Date(Date.now()).toLocaleTimeString("en-US", {
-    hour12: false,
-  }) as TimeString;
-  const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-  const currentDay = dayNames[new Date(Date.now()).getDay()];
-
-  const filteredTrips = trips.filter(
-    (t: any) => calendar.find((c: any) => c.service_id === t.service_id)[currentDay] === "1"
-  );
-
-  const futureStopTimes = stopTimes
-    .filter((stopTime: any) => stopTime.stop_id === stop.stop_id)
-    .filter((stopTime: any) => stopTime.arrival_time >= currentTime);
-  const nextArrivalByRoute: any[] = []; // { key: route_id, route_short_name, arrival_time }
-  futureStopTimes.forEach((stopTime: any) => {
-    const tripUpdate = tripUpdates.find(
-      (ut: any) => ut.trip_update.trip.trip_id === stopTime.trip_id
-    );
-    const stopUpdate = tripUpdate?.trip_update.stop_time_update.find(
-      (stu: any) => stu.stop_id === stopId
-    );
-
-    if (stopUpdate) {
-      const route = routes.find(
-        (route: any) => route.route_id === tripUpdate?.trip_update.trip.route_id
-      );
-      if (
-        route &&
-        (!nextArrivalByRoute[route.route_id] ||
-          nextArrivalByRoute[route.route_id].arrival_time > stopTime.arrival_time)
-      ) {
-        nextArrivalByRoute[route.route_id] = {
-          route_short_name: route.route_short_name,
-          arrival_time: new Date(stopUpdate.arrival?.time * 1000).toLocaleTimeString("en-US", {
-            hour12: false,
-          }) as TimeString,
-          scheduled: false,
-        };
-      }
-    } else {
-      const scheduledTrip = filteredTrips.find((trip: any) => trip.trip_id === stopTime.trip_id);
-      const route = routes.find((route: any) => route.route_id === scheduledTrip?.route_id);
-      if (
-        route &&
-        (!nextArrivalByRoute[route.route_id] ||
-          nextArrivalByRoute[route.route_id].arrival_time > stopTime.arrival_time)
-      ) {
-        nextArrivalByRoute[route.route_id] = {
-          route_short_name: route.route_short_name,
-          arrival_time: stopTime.arrival_time,
-          scheduled: true,
-        };
-      }
-    }
-  });
-
-  reply = `${stop.stop_name}`;
-  if (nextArrivalByRoute.length) {
-    nextArrivalByRoute.forEach(
-      (arrival) =>
-        (reply += `\n${arrival.route_short_name.replaceAll('"', "")} - ${prettyTime(
-          currentTime,
-          arrival.arrival_time
-        )}${arrival.scheduled ? " (s)" : ""}`)
-    );
-  } else {
-    reply += "\nNo upcoming trips.";
-  }
-  return reply;
+// GTFS-RT rule: an update applies to its stop and propagates downstream until
+// the next update, so a delay reported at an earlier stop still applies here.
+const findStopUpdate = (tu: TripUpdate, stopId: string, seq: number) => {
+	const updates = tu.stop_time_update ?? [];
+	const exact = updates.find(
+		(u) => (u.stop_sequence !== undefined && u.stop_sequence === seq) || u.stop_id === stopId,
+	);
+	if (exact) return { update: exact, exact: true };
+	let prior: StopTimeUpdate | undefined;
+	for (const u of updates) {
+		if (u.stop_sequence !== undefined && u.stop_sequence <= seq) prior = u;
+	}
+	return prior ? { update: prior, exact: false } : undefined;
 };
 
-export const busStopAndRoute = async (stopId: string, routeId: string) => {
-  let reply = "";
-  const stop = stops.find((s: any) => s.stop_id === stopId);
-  if (!stop) {
-    return "No stop found with that id.";
-  }
-  const route = routes.find((r: any) => r.route_short_name.toLowerCase() === `\"${routeId}\"`);
+const gtfsArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()): Promise<Arrival[]> => {
+	const tripUpdates = await getTripUpdates();
+	const arrivals: Arrival[] = [];
+	const stopTimes = stopTimesByStop.get(stop.stop_id) ?? [];
 
-  if (!route) {
-    return "No route found with that id.";
-  }
+	for (const day of serviceDays(nowMs)) {
+		for (const st of stopTimes) {
+			const scheduledMs = day.startEpochMs + st.arrivalSec * 1000;
+			if (scheduledMs < nowMs - LOOKBACK_MS || scheduledMs > nowMs + LOOKAHEAD_MS) continue;
+			const trip = tripsById.get(st.trip_id);
+			if (!trip) continue;
+			if (route && trip.route_id !== route.route_id) continue;
+			if (!isServiceActive(trip.service_id, day)) continue;
 
-  const tripUpdates = await getTripUpdates();
+			let epochMs = scheduledMs;
+			let realtime = false;
+			const tu = tripUpdates.get(trip.trip_id);
+			const tuDate = (tu?.trip as any)?.start_date;
+			if (tu && (!tuDate || tuDate === day.date)) {
+				if (tu.trip.schedule_relationship === "CANCELED") continue;
+				const found = findStopUpdate(tu, stop.stop_id, st.stop_sequence);
+				if (found) {
+					const { update, exact } = found;
+					if (exact && update.schedule_relationship === "SKIPPED") continue;
+					const event = update.arrival ?? update.departure;
+					if (exact && event?.time) {
+						epochMs = event.time * 1000;
+						realtime = true;
+					} else if (event?.delay !== undefined) {
+						epochMs = scheduledMs + event.delay * 1000;
+						realtime = true;
+					}
+				}
+			}
 
-  const currentTime = new Date(Date.now()).toLocaleTimeString("en-US", {
-    hour12: false,
-  }) as TimeString;
-  const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-  const currentDay = dayNames[new Date(Date.now()).getDay()];
+			if (epochMs < nowMs - GRACE_MS) continue;
+			const r = routesById.get(trip.route_id);
+			arrivals.push({ routeId: trip.route_id, routeName: shortName(r), epochMs, realtime });
+		}
+	}
+	return arrivals.sort((a, b) => a.epochMs - b.epochMs);
+};
 
-  const filteredTrips = trips
-    .filter((t: any) => t.route_id === route.route_id)
-    .filter(
-      (t: any) => calendar.find((c: any) => c.service_id === t.service_id)[currentDay] === "1"
-    );
-  const futureStopTimes = stopTimes
-    .filter((stopTime: any) => stopTime.stop_id === stop.stop_id)
-    .filter((stopTime: any) => stopTime.arrival_time >= currentTime);
+const obaArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()) => {
+	const { arrivals } = await getObaArrivals(stop.stop_id);
+	return arrivals
+		.filter(
+			(a) =>
+				!route ||
+				a.routeId === route.route_id ||
+				a.routeShortName.toLowerCase() === shortName(route).toLowerCase(),
+		)
+		.filter((a) => a.epochMs >= nowMs - GRACE_MS)
+		.map((a) => ({
+			routeId: a.routeId,
+			routeName: a.routeShortName,
+			epochMs: a.epochMs,
+			realtime: a.realtime,
+		}))
+		.sort((a, b) => a.epochMs - b.epochMs);
+};
 
-  const matchingStops: any[] = [];
-  futureStopTimes.forEach((s: any) => {
-    filteredTrips.forEach((t: any) => {
-      if (s.trip_id === t.trip_id) {
-        matchingStops.push({ ...s, scheduled: true });
-      }
-    });
-  });
+// OneBusAway first (issue #1), then GTFS-RT + schedule as the fallback.
+export const getArrivals = async (stop: Stop, route?: Route, nowMs = Date.now()) => {
+	if (obaEnabled()) {
+		try {
+			return await obaArrivals(stop, route, nowMs);
+		} catch (e) {
+			console.log("OneBusAway failed, falling back to GTFS:", (e as Error).message);
+		}
+	}
+	return gtfsArrivals(stop, route, nowMs);
+};
 
-  reply = `${stop.stop_name} - ${route.route_short_name}`;
-  if (matchingStops.length) {
-    const filteredMatches = matchingStops.map((ms) => {
-      const tripUpdate = tripUpdates.find((ut: any) => ut.trip_update.trip.trip_id === ms.trip_id);
-      const stopUpdate = tripUpdate?.trip_update.stop_time_update.find(
-        (stu: any) => stu.stop_id === stopId
-      );
-      if (stopUpdate) {
-        return {
-          arrival_time: new Date(stopUpdate.arrival.time * 1000).toLocaleTimeString("en-US", {
-            hour12: false,
-          }) as TimeString,
-          scheduled: false,
-        };
-      }
-      return ms;
-    });
-    filteredMatches
-      .sort((a, b) => (a.arrival_time > b.arrival_time ? 1 : -1))
-      .slice(0, 5)
-      .map(
-        (ms) =>
-          (reply += `\n${prettyTime(currentTime, ms.arrival_time)}${ms.scheduled ? " (s)" : ""}`)
-      );
-  } else {
-    reply += "\nNo upcoming trips.";
-  }
-  return reply;
+const formatArrival = (nowMs: number, a: Arrival) =>
+	`${prettyTime(nowMs, a.epochMs)}${a.realtime ? "" : " (s)"}`;
+
+export const busStop = async (stopId: string, nowMs = Date.now()) => {
+	const stop = findStop(stopId);
+	if (!stop) return "No stop found with that id.";
+
+	const arrivals = await getArrivals(stop, undefined, nowMs);
+	const nextByRoute = new Map<string, Arrival>();
+	for (const a of arrivals) if (!nextByRoute.has(a.routeName)) nextByRoute.set(a.routeName, a);
+
+	let reply = stop.stop_name;
+	if (!nextByRoute.size) return `${reply}\nNo upcoming trips.`;
+	for (const a of nextByRoute.values()) reply += `\n${a.routeName} - ${formatArrival(nowMs, a)}`;
+	return reply;
+};
+
+export const busStopAndRoute = async (stopId: string, routeId: string, nowMs = Date.now()) => {
+	const stop = findStop(stopId);
+	if (!stop) return "No stop found with that id.";
+	const route = findRoute(routeId, stop.stop_id);
+	if (!route) return "No route found with that id.";
+
+	const arrivals = (await getArrivals(stop, route, nowMs)).slice(0, 5);
+	let reply = `${stop.stop_name} - ${shortName(route)}`;
+	if (!arrivals.length) return `${reply}\nNo upcoming trips.`;
+	for (const a of arrivals) reply += `\n${formatArrival(nowMs, a)}`;
+	return reply;
 };
