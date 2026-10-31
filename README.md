@@ -23,6 +23,8 @@ Live arrivals come from OneBusAway for every agency once `OBA_API_KEY` is set. W
 | `stops [cross streets or address]` | channel, DM | Find stop numbers (`stops pine 4th`, `stops 1100 broadway`) |
 | `near` | DM | The 3 stops closest to your radio's advertised position. In a channel it asks you to DM instead, so your location isn't broadcast. `near [place]` works anywhere |
 | `go [from] to [to]` | channel, DM | Plans a trip from the timetables, offline (see below). `go to [place]` plans from your advertised position, in DMs |
+| `pin [stop]` / `pin [place]` | channel, DM | Sends a stop as a map pin for MeshCore Open, MeshCore Open TAK and Wadamesh standalones (see below) |
+| `pins on` / `pins off` | DM | Adds map pins for the stops in your DM replies |
 | `watch [stop] [route]` / `commute [time] [stop] [route]` | DM | Ride alarms (see below) |
 | `fav add [stop]` / `fav rm [stop]` / `fav list` | DM | Save up to 5 favorite stops |
 | `fav` | DM | Arrivals for all your favorite stops |
@@ -48,6 +50,13 @@ If `OBA_API_KEY` is set, BusBot asks [OneBusAway Puget Sound](https://www.soundt
 - It allows 2 minutes to change vehicles and walks of up to about 5 minutes between nearby stops; from a place, it considers every stop within a 10-minute walk.
 - Times are timetable, not live: the reply says `timetable` so riders know. Use `bus` at the boarding stop for live times.
 - The network is built in the background a few seconds after BusBot starts (about a second and a few tens of MB for the whole region on a desktop; give a Pi a little longer). A plan then takes well under a second.
+
+## Map pins (the TAK layer)
+MeshCore Open, MeshCore Open TAK and Wadamesh standalones all turn a chat message containing `m:<lat>,<lon>|<label>|<flags>` into a pin on their map. BusBot speaks that format, so stops land on riders' maps with no app changes:
+
+- `pin 1120` answers with just the pin; tap it to open the map there. `pin pike 3rd` lists the matching stops and pins them.
+- `pins on` (DM) adds pins to that rider's DM replies: the stop for `bus` and `alerts`, the stops found by `stops` and `near`, and for `go` the boarding stop (`Trip start`), the stop to get off (`Trip end`) and any change (`Trip change`). Trip pins keep the same labels, so each new plan moves them instead of piling up. `pins off` stops them. Never in channels unless asked with `pin`.
+- Each pin is its own message after the text reply (the apps show a message holding a pin as just the pin), at most 3 per reply. Labels are plain text of 32 bytes or less, which Wadamesh can show in full.
 
 ## Ride alarms
 In a DM to the bot:

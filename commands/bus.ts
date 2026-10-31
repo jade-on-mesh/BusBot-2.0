@@ -14,6 +14,7 @@ import {
 	tripsByKey,
 } from "../gtfs";
 import { getObaArrivals, getTripUpdates, LiveStatus, obaCovers, StopTimeUpdate, TripUpdate } from "../realtime";
+import { notePin } from "../pins";
 import { em, routeEmoji, scheduledMark } from "../style";
 import { prettyTime, serviceDays } from "../time";
 
@@ -148,6 +149,7 @@ export const busStop = async (typed: string, nowMs = Date.now(), opts: StopOpts 
 	const found = resolveStop(typed, opts);
 	if (!found) return NO_STOP();
 	const { stop, others } = found;
+	notePin(stop);
 
 	const { arrivals, offline } = await getArrivals(stop, undefined, nowMs);
 	const tail = `${offline ? `\n${OFFLINE()}` : ""}${alsoLine(others)}`;
@@ -179,6 +181,7 @@ export const busStopAndRoute = async (typed: string, routeName: string, nowMs = 
 		}
 	}
 	if (!route) return NO_ROUTE();
+	notePin(stop);
 
 	const result = await getArrivals(stop, route, nowMs);
 	const arrivals = result.arrivals.slice(0, 5);

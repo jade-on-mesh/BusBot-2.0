@@ -27,8 +27,10 @@ import {
 	helpCommute,
 } from "./commands";
 import { commute, unwatch, watch } from "./alarms";
+import { NO_STOP } from "./commands/bus";
 import { go, helpGo } from "./planner";
-import { parseStopArgs, Place } from "./gtfs";
+import { helpPins, isPinLine, notePin, pinsCommand, pinsOn, withPinLines, withPins } from "./pins";
+import { parseStopArgs, Place, resolveStop } from "./gtfs";
 import { isAdmin } from "./store";
 
 export type CommandContext = {
@@ -55,7 +57,21 @@ export const handleCommand = async (
 	const words = rawMessage.trim().toLowerCase().split(/\s+/).filter(Boolean);
 	if (!words.length) return;
 	const [command, ...args] = words;
+	const { result, pins } = await withPins(() => runCommand(rawMessage, command, args, ctx));
+	if (result === undefined) return;
+	// Stops the reply mentions go out as map pins after it: always for
+	// "pin", and in DMs for riders who turned pins on.
+	const sendPins = command === "pin" || (ctx.isDM && pinsOn(ctx.pubKey));
+	if (!sendPins || !pins.length) return result || undefined;
+	return result ? withPinLines(result, pins) : withPinLines("", pins).replace(/^\n/, "");
+};
 
+const runCommand = async (
+	rawMessage: string,
+	command: string,
+	args: string[],
+	ctx: CommandContext,
+): Promise<string | undefined> => {
 	try {
 		switch (command) {
 			case "help": {
@@ -71,6 +87,7 @@ export const handleCommand = async (
 				if (topic === "stops") return helpStops(ctx.say);
 				if (topic === "near") return helpNear(ctx.say);
 				if (topic === "go") return helpGo(ctx.say);
+				if (topic === "pin" || topic === "pins") return helpPins(ctx.say);
 				if (topic === "watch" || topic === "unwatch") return helpWatch(ctx.say);
 				if (topic === "commute") return helpCommute(ctx.say);
 				if (topic === "admin" && isAdmin(ctx.pubKey)) return helpAdmin();
@@ -97,6 +114,20 @@ export const handleCommand = async (
 				return near(args, ctx);
 			case "go":
 				return go(args, ctx);
+			// map pins for MeshCore Open (TAK) and Wadamesh maps
+			case "pin": {
+				if (!args.length) return helpPins(ctx.say);
+				const { agency, stop, rest } = parseStopArgs(args);
+				if (stop && !rest.length && /\d/.test(stop)) {
+					const found = resolveStop(stop, { agency, near: ctx.near });
+					if (!found) return NO_STOP();
+					notePin(found.stop);
+					return ""; // the pin is the whole reply
+				}
+				return stops(args.join(" "));
+			}
+			case "pins":
+				return ctx.isDM ? pinsCommand(ctx.pubKey, args, ctx.say) : helpPins(ctx.say);
 			// ride alarms: DMs only, they need to know who to message
 			case "watch":
 				return ctx.isDM ? watch(args, ctx) : undefined;
@@ -137,7 +168,13 @@ export const handleCommand = async (
 export const MAX_LENGTH = 115;
 const bytes = (s: string) => Buffer.byteLength(s, "utf8");
 
-export const divideReply = (message: string, maxBytes = MAX_LENGTH) => {
+export const divideReply = (message: string, maxBytes = MAX_LENGTH): string[] => {
+	// Map pins ride alone, one per message, after the text.
+	const lines = message.split("\n");
+	if (lines.some(isPinLine)) {
+		const text = lines.filter((l) => !isPinLine(l)).join("\n");
+		return [...(text.trim() ? divideReply(text, maxBytes) : []), ...lines.filter(isPinLine)];
+	}
 	const total = bytes(message);
 	if (total <= maxBytes) return [message];
 	let parts = Math.ceil(total / maxBytes);

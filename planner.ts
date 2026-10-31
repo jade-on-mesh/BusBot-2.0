@@ -22,6 +22,7 @@ import {
 	tripsByKey,
 } from "./gtfs";
 import { geocode, geocodingEnabled, searchStopsByName } from "./commands/stops";
+import { notePin } from "./pins";
 import { em, routeEmoji } from "./style";
 import { localParts, serviceDays, ServiceDay } from "./time";
 
@@ -374,6 +375,12 @@ export const formatPlan = (p: Plan, nowMs = Date.now()) => {
 	const transfers = rides > 1 ? ` · ${rides - 1} transfer${rides > 2 ? "s" : ""}` : "";
 	lines.push(em("🧭", `Arrive ${clock(p.arriveMs)} · ${total} min${transfers} · timetable`));
 	const firstRide = p.legs.find((l) => l.kind === "ride") as Extract<Leg, { kind: "ride" }>;
+	// Map pins with fixed labels, so each new plan moves the old pins rather
+	// than leaving them: where to board, where to get off, then changes.
+	const rideLegs = p.legs.filter((l) => l.kind === "ride") as Extract<Leg, { kind: "ride" }>[];
+	notePin(n.stops[firstRide.from], "Trip start");
+	notePin(n.stops[rideLegs[rideLegs.length - 1].to], "Trip end");
+	rideLegs.slice(1).forEach((l, i) => notePin(n.stops[l.from], i ? `Trip change ${i + 1}` : "Trip change"));
 	if (p.startWalkSec >= 60) lines.push(em("🚶", `${mins(p.startWalkSec)} min to ${stopRef(n.stops[firstRide.from])}`));
 	p.legs.forEach((l, i) => {
 		if (l.kind === "walk") {

@@ -1,5 +1,6 @@
 import { agencyName, findRoute, resolveStop, Route, routesByStop, shortName, Stop } from "../gtfs";
 import { Alert, getAlertsFor, getObaArrivals, obaCovers, translate } from "../realtime";
+import { notePin } from "../pins";
 import { em } from "../style";
 import { agencyTag, alsoLine, NO_STOP, StopOpts } from "./bus";
 
@@ -61,6 +62,7 @@ export const alertsStop = async (typed: string, nowMs = Date.now(), opts: StopOp
 	const found = resolveStop(typed, opts);
 	if (!found) return NO_STOP();
 	const { stop, others } = found;
+	notePin(stop);
 	const result = await getStopAlerts(stop, undefined, nowMs);
 	return `${em("🚏", `${stop.stop_name}${agencyTag(stop)}`)}\n${body(result, stop)}${alsoLine(others)}`;
 };
@@ -78,6 +80,7 @@ export const alertsStopAndRoute = async (typed: string, routeName: string, nowMs
 		}
 	}
 	if (!route) return em("❓", "No route found with that id.");
+	notePin(stop);
 	const result = await getStopAlerts(stop, route, nowMs);
 	return `${em("🚏", `${shortName(route)} @ ${stop.stop_name}${agencyTag(stop)}`)}\n${body(result, stop)}`;
 };

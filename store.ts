@@ -60,6 +60,8 @@ export interface User {
 	lastAdvert: number;
 	advLat: number;
 	advLon: number;
+	// send stops as map pins with DM replies (pins on)
+	mapPins?: boolean;
 }
 
 const usersFile = readJson<{ users: User[] }>("users.json", { users: [] });

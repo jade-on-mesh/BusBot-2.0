@@ -8,6 +8,7 @@
 //    Puget Sound region) and return the closest stops by distance, across
 //    every loaded agency.
 import { metersBetween, routesByKey, routesByStop, shortName, Stop, stopRef, stopsByKey } from "../gtfs";
+import { notePin } from "../pins";
 import { em } from "../style";
 
 const MAX_RESULTS = 3;
@@ -137,8 +138,10 @@ const routeList = (stopKey: string) => {
 	return names.length > MAX_ROUTES_SHOWN ? `${shown} +${names.length - MAX_ROUTES_SHOWN}` : shown;
 };
 
-const stopLine = (stop: Stop, distance?: string) =>
-	em("🚏", `${stopRef(stop)} ${stop.stop_name}${distance ? ` · ${distance}` : ""} → ${routeList(stop.key)}`);
+const stopLine = (stop: Stop, distance?: string) => {
+	notePin(stop);
+	return em("🚏", `${stopRef(stop)} ${stop.stop_name}${distance ? ` · ${distance}` : ""} → ${routeList(stop.key)}`);
+};
 
 const shorten = (s: string, max = 32) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 

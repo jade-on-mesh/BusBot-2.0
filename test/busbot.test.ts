@@ -720,3 +720,56 @@ describe("trip planner (go)", () => {
 		}
 	});
 });
+
+describe("map pins (MeshCore Open TAK / Wadamesh)", () => {
+	const key = "dd".repeat(32);
+	const dm = { isDM: true, pubKey: key };
+	const PIN_1120 = "m:47.60000,-122.30000|1120 3rd Ave & Pike St, Bay 2|bus";
+	const realNow = Date.now;
+	before(() => {
+		Date.now = () => t("2026-10-27T14:40:00Z");
+		store.users.set(key, {
+			pubKey: key, advName: "Mapper", favoriteStops: [], firstSeen: 0, lastSeen: 0, type: 1, flags: 0,
+			outPathLen: -1, outPath: "", lastAdvert: 0, advLat: 0, advLon: 0,
+		});
+	});
+	after(() => (Date.now = realNow));
+	it("pin [stop] answers with just the pin, anywhere", async () => {
+		assert.equal(await handleCommand("pin 1120", { isDM: false }), PIN_1120);
+		assert.equal(await handleCommand("pin ct 1120", { isDM: false }), "m:47.97500,-122.19700|ct 1120 Everett Station Bay 3|bus");
+		assert.match((await handleCommand("pin 99999", { isDM: false }))!, /No stop/i);
+	});
+	it("pin [place] lists the stops and pins them", async () => {
+		const r = (await handleCommand("pin pike 3rd", { isDM: false }))!;
+		assert.match(r, /^pike 3rd:\n1120 3rd Ave/);
+		assert.ok(r.endsWith(`\n${PIN_1120}`));
+	});
+	it("adds pins to DM replies once a rider turns them on", async () => {
+		assert.doesNotMatch((await handleCommand("bus 1120", dm))!, /m:/);
+		assert.match((await handleCommand("pins on", dm))!, /^Map pins on/);
+		assert.ok((await handleCommand("bus 1120", dm))!.endsWith(`\n${PIN_1120}`));
+		// never in a channel, where the rider didn't ask
+		assert.doesNotMatch((await handleCommand("bus 1120", { isDM: false, pubKey: key }))!, /m:/);
+		assert.match((await handleCommand("pins off", dm))!, /^Map pins off/);
+		assert.doesNotMatch((await handleCommand("bus 1120", dm))!, /m:/);
+	});
+	it("pins a trip's start, end and change with fixed labels", async () => {
+		await handleCommand("pins on", dm);
+		const r = (await handleCommand("go 11040 to 11050", dm))!;
+		assert.deepEqual(r.split("\n").filter((l) => l.startsWith("m:")), [
+			"m:47.61000,-122.32000|Trip start|bus",
+			"m:47.62000,-122.32000|Trip end|bus",
+			"m:47.60040,-122.30040|Trip change|bus",
+		]);
+		await handleCommand("pins off", dm);
+	});
+	it("sends each pin as its own message after the text", () => {
+		assert.deepEqual(divideReply(`Stop info\n${PIN_1120}\nm:1,2|x|bus`), ["Stop info", PIN_1120, "m:1,2|x|bus"]);
+	});
+	it("keeps labels short, plain and safe for Wadamesh", async () => {
+		const { pinLabel } = await import("../pins");
+		assert.equal(pinLabel("🚏 A|B\nC"), "A/B C");
+		const long = pinLabel("Northgate Station Bay 4 & Something Very Long");
+		assert.ok(Buffer.byteLength(long) <= 32 && long.endsWith("…"), long);
+	});
+});

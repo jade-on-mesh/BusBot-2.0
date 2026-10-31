@@ -21,7 +21,7 @@ Optional settings in local/config.ini:
     # word riders type = word BusBot understands. Rename a word here if it
     # collides with another meshcore-bot command. "alerts" belongs to
     # meshcore-bot's own alert command, so riders type "busalerts [stop]".
-    keywords = bus=bus, busalerts=alerts, stops=stops, near=near, go=go, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute
+    keywords = bus=bus, busalerts=alerts, stops=stops, near=near, go=go, pin=pin, pins=pins, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute
     # "help" in a BusBot-only channel (see channels above) also shows BusBot's
     # help, since meshcore-bot's own help doesn't answer there.
 """
@@ -29,6 +29,7 @@ Optional settings in local/config.ini:
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 import time
 import urllib.error
@@ -38,6 +39,7 @@ from modules.commands.base_command import BaseCommand
 from modules.models import MeshMessage
 
 SECTION = "BusBot_Command"
+PIN_LINE = re.compile(r"^m:-?[0-9.]+,-?[0-9.]+\|")
 log = logging.getLogger("busbot_command")
 
 async def ensure_dm_contact(bot, pubkey, state: dict, log) -> None:
@@ -73,7 +75,7 @@ class BusBotCommand(BaseCommand):
     """King County Metro arrivals, alerts and favorite stops via BusBot."""
 
     name = "busbot"
-    keywords = ["bus", "busalerts", "stops", "near", "go", "fav", "bushelp", "help", "watch", "unwatch", "commute"]
+    keywords = ["bus", "busalerts", "stops", "near", "go", "pin", "pins", "fav", "bushelp", "help", "watch", "unwatch", "commute"]
     description = (
         "King County Metro arrivals and alerts. 'bus [stop]', 'bus [stop] [route]', "
         "'busalerts [stop]', 'stops [cross streets or address]', 'go [from] to [to]'. In DMs: 'fav add [stop]', 'fav'."
@@ -100,7 +102,7 @@ class BusBotCommand(BaseCommand):
         default_db = getattr(getattr(bot, "db_manager", None), "db_path", None) or "/var/lib/meshcore-bot/meshcore_bot.db"
         self.db_path = str(self.get_config_value(SECTION, "db_path", fallback=default_db) or "").strip()
         self._places = {}  # cache key -> (fetched_at, (lat, lon) or None)
-        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, stops=stops, near=near, go=go, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute")
+        raw = self.get_config_value(SECTION, "keywords", fallback="bus=bus, busalerts=alerts, stops=stops, near=near, go=go, pin=pin, pins=pins, fav=fav, bushelp=help, watch=watch, unwatch=unwatch, commute=commute")
         self.word_map = {}
         for pair in str(raw).split(","):
             if "=" in pair:
@@ -135,7 +137,7 @@ class BusBotCommand(BaseCommand):
         if words[0] not in self.word_map:
             return False
         means = self.word_map[words[0]]
-        if means in ("fav", "watch", "unwatch", "commute"):
+        if means in ("fav", "watch", "unwatch", "commute", "pins"):
             return bool(message.is_dm)  # these need to know who the rider is
         return len(words) == 1 or words[1][:1].isalnum()
 
@@ -212,6 +214,14 @@ class BusBotCommand(BaseCommand):
         bytes (an emoji is 4 bytes on the air). Long lines break at spaces."""
         chunks, current = [], ""
         for line in text.split("\n"):
+            # A map pin ("m:lat,lon|label|flags") goes out as its own message:
+            # MeshCore Open (TAK) shows a message holding a pin as just the pin.
+            if PIN_LINE.match(line):
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.append(line)
+                continue
             while self._bytes(line) > limit:
                 if current:
                     chunks.append(current)
