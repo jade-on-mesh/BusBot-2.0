@@ -124,41 +124,61 @@ const editDistance = (a: string, b: string, max: number) => {
 	return rows[a.length][b.length];
 };
 
-// The known word a typo most likely meant, or the word itself.
-export const correctWord = (word: string): string => {
+// Known words a typo may have meant, likeliest first (at most [max]); empty
+// when the word is known or nothing is close. A changed first letter counts
+// as an extra edit, since people rarely get it wrong ("akai" is "alki", not
+// "sakai"). Ties go to the commoner word.
+export const wordCandidates = (word: string, max = 3): string[] => {
 	const words = getVocab();
-	if (word.length < 4 || /\d/.test(word) || words.has(word) || IGNORED.has(word)) return word;
-	// Short words get one edit, or two if the first letter is right
-	// ("akai" -> "alki"); longer words get two.
-	let best: { w: string; score: number } | undefined;
+	if (word.length < 4 || /\d/.test(word) || words.has(word) || IGNORED.has(word)) return [];
+	const limit = word.length < 6 ? 2 : 3;
+	const scored: { w: string; score: number }[] = [];
 	for (const [w, count] of words) {
 		if (Math.abs(w.length - word.length) > 2) continue;
 		const d = editDistance(word, w, 2);
 		if (d > 2) continue;
-		const sameStart = w[0] === word[0];
-		if (d === 2 && word.length < 6 && !sameStart) continue;
-		// fewer edits first, then same first letter, then common words
-		const score = d * 1000 - (sameStart ? 500 : 0) - Math.min(count, 499);
-		if (!best || score < best.score) best = { w, score };
+		const cost = d + (w[0] === word[0] ? 0 : 1);
+		if (cost > limit) continue;
+		scored.push({ w, score: cost * 1000 - Math.min(count, 999) });
 	}
-	return best?.w ?? word;
+	return scored
+		.sort((a, b) => a.score - b.score)
+		.slice(0, max)
+		.map((c) => c.w);
+};
+
+// The known word a typo most likely meant, or the word itself.
+export const correctWord = (word: string): string => wordCandidates(word, 1)[0] ?? word;
+
+const typedWords = (query: string) =>
+	query.toLowerCase().replace(/['’.]/g, "").split(/[^a-z0-9]+/).filter(Boolean).join(" ");
+
+// Corrected versions of [query], likeliest first: every unknown word's best
+// guess, then each one's runner-up in turn. Empty when nothing changed.
+export const correctQueries = (query: string, max = 3): string[] => {
+	const words = tokens(query);
+	const options = words.map((w) => wordCandidates(w));
+	const best = words.map((w, i) => options[i][0] ?? w);
+	const out = [best.join(" ")];
+	for (let i = 0; i < words.length && out.length < max; i++) {
+		for (const alt of options[i].slice(1)) {
+			if (out.length >= max) break;
+			out.push(best.map((w, j) => (j === i ? alt : w)).join(" "));
+		}
+	}
+	// A spelling fix ("centre" -> "center") counts as a change too.
+	const typed = typedWords(query);
+	return [...new Set(out)].filter((q) => q !== typed);
 };
 
 // The query with each unknown word corrected, or undefined if nothing changed.
-export const correctQuery = (query: string): string | undefined => {
-	const fixed = tokens(query).map(correctWord).join(" ");
-	// Compared with the words as typed, so a spelling fix ("centre" ->
-	// "center") counts as a change and gets its own address lookup.
-	const typed = query.toLowerCase().replace(/['’.]/g, "").split(/[^a-z0-9]+/).filter(Boolean).join(" ");
-	return fixed !== typed ? fixed : undefined;
-};
+export const correctQuery = (query: string): string | undefined => correctQueries(query, 1)[0];
 
 // Name search that retries with typos corrected. [query] is what matched.
 export const searchStopsFuzzy = (query: string): { stops: Stop[]; query: string } => {
 	const exact = searchStopsByName(query);
 	if (exact.length) return { stops: exact, query };
-	const fixed = correctQuery(query);
-	if (fixed) {
+	for (const fixed of correctQueries(query)) {
 		const hits = searchStopsByName(fixed);
 		if (hits.length) return { stops: hits, query: fixed };
 	}
@@ -183,8 +203,12 @@ export const searchWithoutPlaceWords = (query: string): { stops: Stop[]; query: 
 export const geocodeFuzzy = async (query: string): Promise<Geo | null> => {
 	const place = await geocode(query);
 	if (place) return place;
-	const fixed = correctQuery(query);
-	return fixed ? geocode(fixed) : null;
+	// at most two more lookups: the geocoder allows one a second
+	for (const fixed of correctQueries(query, 2)) {
+		const found = await geocode(fixed);
+		if (found) return found;
+	}
+	return null;
 };
 
 // ---------- geocoding ----------

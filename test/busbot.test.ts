@@ -780,6 +780,11 @@ describe("typos", () => {
 		const { correctWord, correctQuery } = await import("../commands/stops");
 		assert.equal(correctWord("akai"), "alki");
 		assert.equal(correctWord("alkai"), "alki");
+		// "sakai" (a real stop name) is one edit away but changes the first
+		// letter, which people rarely get wrong: "alki" wins
+		assert.equal(correctWord("akai"), "alki");
+		const { correctQueries } = await import("../commands/stops");
+		assert.deepEqual(correctQueries("akai beach"), ["alki beach", "sakai beach"]);
 		assert.equal(correctWord("zorbu"), "zorbu"); // too far from anything: left alone
 		assert.equal(correctWord("braodway"), "broadway");
 		assert.equal(correctWord("pine"), "pine");
