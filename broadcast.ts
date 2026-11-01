@@ -10,12 +10,14 @@
 import { Alert, getAlertsFor } from "./realtime";
 import { agencyCode, defaultAgency, feeds, routesByKey, shortName } from "./gtfs";
 import { alertText, isActive } from "./commands/alerts";
+import { translate } from "./realtime";
 import { readJson, writeJson } from "./store";
 import { em } from "./style";
 import { localParts } from "./time";
 
 const REPOST_AFTER_MS = 24 * 3600_000;
 const MAX_BYTES = 115; // one channel message
+const MAX_PARTS = 2; // a long alert goes out as two messages, not cut short
 
 export const broadcastsEnabled = () => !/^(0|false|off|no)$/i.test((process.env.ALERT_POSTS ?? "").trim());
 export const quietMinutes = () => Math.max(10, parseInt(process.env.ALERT_QUIET_MINUTES || "60") || 60);
@@ -46,7 +48,27 @@ const fitBytes = (s: string, max: number) => {
 	return `${cut.trimEnd()}…`;
 };
 
-const format = (a: Alert) => {
+// [text] in at most MAX_PARTS messages, broken between words. A part that
+// carries on says so: "… " at the end of one, "… " at the start of the next.
+export const splitAlert = (text: string, max = MAX_BYTES, parts = MAX_PARTS): string[] => {
+	const out: string[] = [];
+	let rest = text;
+	while (Buffer.byteLength(rest) > max && out.length < parts - 1) {
+		const room = max - Buffer.byteLength(" …");
+		let cut = 0;
+		for (let i = rest.indexOf(" "); i > 0; i = rest.indexOf(" ", i + 1)) {
+			if (Buffer.byteLength(rest.slice(0, i)) > room) break;
+			cut = i;
+		}
+		if (!cut) cut = [...rest].reduce((n, ch) => (Buffer.byteLength(rest.slice(0, n + ch.length)) <= room ? n + ch.length : n), 0);
+		out.push(`${rest.slice(0, cut).trimEnd()} …`);
+		rest = `… ${rest.slice(cut).trimStart()}`;
+	}
+	out.push(fitBytes(rest, max));
+	return out;
+};
+
+const format = (a: Alert): string[] => {
 	const routes = [
 		...new Set(
 			(a.alert.informed_entity ?? [])
@@ -58,11 +80,14 @@ const format = (a: Alert) => {
 	const shown = routes.slice(0, 3).join("/") + (routes.length > 3 ? "+" : "");
 	const agency = a.agency === defaultAgency ? "" : agencyCode(a.agency).toUpperCase();
 	const label = [agency, shown].filter(Boolean).join(" ");
-	return fitBytes(em("⚠️", `${label ? `${label}: ` : ""}${alertText(a)}`), MAX_BYTES);
+	// With room for two messages, the full header rather than the short one.
+	const text = translate(a.alert.header_text) ?? alertText(a);
+	return splitAlert(em("⚠️", `${label ? `${label}: ` : ""}${text}`));
 };
 
-// The next alert worth posting, or null. Marks it as posted.
-export const nextBroadcast = async (nowMs = Date.now()): Promise<string | null> => {
+// The next alert worth posting, as the messages to send (one or two), or
+// null. Marks it as posted.
+export const nextBroadcastParts = async (nowMs = Date.now()): Promise<string[] | null> => {
 	if (!broadcastsEnabled() || inQuietHours(nowMs)) return null;
 	const candidates: Alert[] = [];
 	for (const id of feeds.keys()) {
@@ -83,3 +108,7 @@ export const nextBroadcast = async (nowMs = Date.now()): Promise<string | null> 
 	writeJson(FILE, { posted });
 	return format(pick);
 };
+
+// The same, as one text (parts on separate lines).
+export const nextBroadcast = async (nowMs = Date.now()): Promise<string | null> =>
+	(await nextBroadcastParts(nowMs))?.join("\n") ?? null;

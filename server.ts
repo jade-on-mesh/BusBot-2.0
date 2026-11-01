@@ -12,7 +12,7 @@ import { createServer, IncomingMessage } from "node:http";
 import { feeds, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { liveSummary } from "./realtime";
 import { claimOutbox, startAlarms } from "./alarms";
-import { nextBroadcast } from "./broadcast";
+import { nextBroadcastParts } from "./broadcast";
 import { countQuery, divideReply, handleCommand } from "./router";
 import { flushUsers, isBlocked, saveUsers, toHex, userPlace, users, validPlace } from "./store";
 
@@ -90,8 +90,11 @@ const server = createServer(async (req, res) => {
 		}
 		// The caller's channel has been quiet: is there an alert worth posting?
 		// Returns {text: null} when not (none new, quiet hours, or disabled).
+		// A long alert comes as two messages in "parts" ("text" has them on
+		// separate lines, for older plugins).
 		if (req.method === "POST" && req.url === "/broadcast/next") {
-			return send(200, { text: await nextBroadcast() });
+			const parts = await nextBroadcastParts();
+			return send(200, { text: parts?.join("\n") ?? null, parts: parts ?? [] });
 		}
 		if (req.method !== "POST" || req.url !== "/command") return send(404, { error: "not found" });
 

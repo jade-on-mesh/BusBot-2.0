@@ -2,7 +2,7 @@ import { warmPlanner } from "./planner";
 import { Constants, NodeJSSerialConnection } from "@liamcottle/meshcore.js";
 import { info } from "./commands";
 import { OutgoingDm, startAlarms } from "./alarms";
-import { broadcastsEnabled, nextBroadcast, quietMinutes } from "./broadcast";
+import { broadcastsEnabled, nextBroadcastParts, quietMinutes } from "./broadcast";
 import { agencyName, loadGtfs, soonestFeedEnd } from "./gtfs";
 import { countQuery, divideReply, handleCommand } from "./router";
 import {
@@ -296,8 +296,11 @@ const startAlertPosts = () => {
 	alertPostTimer = setInterval(async () => {
 		try {
 			if (Date.now() - lastChannelActivity < quietMinutes() * 60_000) return;
-			const text = await nextBroadcast();
-			if (text) await sendToChannel(text);
+			const parts = await nextBroadcastParts();
+			for (const [i, part] of (parts ?? []).entries()) {
+				if (i) await new Promise((r) => setTimeout(r, 2000));
+				await sendToChannel(part);
+			}
 		} catch (e) {
 			console.error("Alert post failed:", e);
 		}

@@ -625,7 +625,7 @@ describe("quiet-channel alert posts", () => {
 		assert.equal(await b.nextBroadcast(TUE_2300), "11: Ruta 11 desviada");
 		delete process.env.ALERT_QUIET_HOURS;
 	});
-	it("picks the most severe first, then the newest, and fits one message", async () => {
+	it("picks the most severe first, then the newest, a long one in two messages", async () => {
 		const mk = (id: string, sev: string, ts: number, text: string, route = "100011") => ({
 			id,
 			alert: {
@@ -640,12 +640,20 @@ describe("quiet-channel alert posts", () => {
 			mk("old-severe", "SEVERE", 100, "No service on 3rd Ave due to police activity. Use 2nd Ave stops. ".repeat(3)),
 			mk("mid-warning", "WARNING", 200, "Snow routes in effect"),
 		]);
-		const first = (await b.nextBroadcast(TUE_0810))!;
-		assert.match(first, /^11\/G Line: No service on 3rd Ave/);
-		assert.ok(Buffer.byteLength(first) <= 115 && first.endsWith("…"), first);
+		const parts = (await b.nextBroadcastParts(TUE_0810))!;
+		assert.equal(parts.length, 2);
+		assert.match(parts[0], /^11\/G Line: No service on 3rd Ave.* …$/);
+		assert.match(parts[1], /^… /);
+		for (const p of parts) assert.ok(Buffer.byteLength(p) <= 115, p);
+		// broken between words, nothing lost but what two messages can't hold
+		assert.equal(parts.join(" ").replace(/ … … /, " ").split(" ").slice(0, 25).join(" "),
+			("11/G Line: " + "No service on 3rd Ave due to police activity. Use 2nd Ave stops. ".repeat(3)).split(" ").slice(0, 25).join(" "));
 		assert.equal(await b.nextBroadcast(TUE_0810), "11/G Line: Snow routes in effect");
 		assert.equal(await b.nextBroadcast(TUE_0810), "11/G Line: Stop closed for sidewalk work");
 		assert.equal(await b.nextBroadcast(TUE_0810), null);
+		const { splitAlert } = b;
+		assert.deepEqual(splitAlert("short"), ["short"]);
+		assert.ok(splitAlert("x ".repeat(200)).length === 2 && splitAlert("x ".repeat(200))[1].endsWith("…"));
 	});
 	it("posts nothing when switched off, or when alerts can't be reached", async () => {
 		fresh();

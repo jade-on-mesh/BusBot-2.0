@@ -152,13 +152,21 @@ class BusBotAlarmsService(BaseServicePlugin):
         if now - last < self.quiet_minutes * 60 or now - self._last_check < 300:
             return
         self._last_check = now
-        text = (await asyncio.to_thread(self._post_json, "/broadcast/next")).get("text")
-        if not text:
+        data = await asyncio.to_thread(self._post_json, "/broadcast/next")
+        # A long alert comes as two messages ("parts"); older BusBots send one "text".
+        parts = data.get("parts") or ([data["text"]] if data.get("text") else [])
+        if not parts:
             return
-        if await self.bot.command_manager.send_channel_message(self.channel, text, skip_user_rate_limit=True):
-            self._last_post = now
-            activity[key] = now
-            log.info(f"Posted transit alert to {self.channel}")
+        sent = False
+        for i, part in enumerate(parts):
+            if i:
+                await asyncio.sleep(2)
+            if await self.bot.command_manager.send_channel_message(self.channel, part, skip_user_rate_limit=True):
+                sent = True
+        if sent:
+            self._last_post = time.time()
+            activity[key] = self._last_post
+            log.info(f"Posted transit alert to {self.channel} ({len(parts)} message(s))")
 
     async def _deliver(self, dm: dict) -> None:
         cm = self.bot.command_manager
