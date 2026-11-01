@@ -49,22 +49,31 @@ const fitBytes = (s: string, max: number) => {
 };
 
 // [text] in at most MAX_PARTS messages, broken between words. A part that
-// carries on says so: "… " at the end of one, "… " at the start of the next.
-export const splitAlert = (text: string, max = MAX_BYTES, parts = MAX_PARTS): string[] => {
+// carries on says so ("… " at the end of one, "… " at the start of the
+// next), and the parts of one alert end with the same tag, "[1/2 k3]" and
+// "[2/2 k3]", so map apps' Watch tabs pair them exactly, in whatever order
+// the mesh delivers them. A text that fits one message gets no tag.
+export const partTag = () => Math.floor(Math.random() * 36 * 36).toString(36).padStart(2, "0");
+
+export const splitAlert = (text: string, tag = partTag(), max = MAX_BYTES, parts = MAX_PARTS): string[] => {
+	if (Buffer.byteLength(text) <= max) return [text];
+	const label = (i: number) => ` [${i}/${parts} ${tag}]`;
 	const out: string[] = [];
 	let rest = text;
-	while (Buffer.byteLength(rest) > max && out.length < parts - 1) {
-		const room = max - Buffer.byteLength(" …");
+	while (out.length < parts - 1) {
+		const room = max - Buffer.byteLength(` …${label(out.length + 1)}`);
+		if (Buffer.byteLength(rest) <= room) break;
 		let cut = 0;
 		for (let i = rest.indexOf(" "); i > 0; i = rest.indexOf(" ", i + 1)) {
 			if (Buffer.byteLength(rest.slice(0, i)) > room) break;
 			cut = i;
 		}
 		if (!cut) cut = [...rest].reduce((n, ch) => (Buffer.byteLength(rest.slice(0, n + ch.length)) <= room ? n + ch.length : n), 0);
-		out.push(`${rest.slice(0, cut).trimEnd()} …`);
+		out.push(`${rest.slice(0, cut).trimEnd()} …${label(out.length + 1)}`);
 		rest = `… ${rest.slice(cut).trimStart()}`;
 	}
-	out.push(fitBytes(rest, max));
+	const last = label(out.length + 1);
+	out.push(`${fitBytes(rest, max - Buffer.byteLength(last))}${last}`);
 	return out;
 };
 

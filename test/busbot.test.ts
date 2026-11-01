@@ -642,18 +642,23 @@ describe("quiet-channel alert posts", () => {
 		]);
 		const parts = (await b.nextBroadcastParts(TUE_0810))!;
 		assert.equal(parts.length, 2);
-		assert.match(parts[0], /^11\/G Line: No service on 3rd Ave.* …$/);
-		assert.match(parts[1], /^… /);
+		// both halves carry the same tag, so apps pair them exactly
+		const tag = /\[1\/2 ([0-9a-z]{2})\]$/.exec(parts[0])![1];
+		assert.match(parts[0], /^11\/G Line: No service on 3rd Ave.* … \[1\/2 [0-9a-z]{2}\]$/);
+		assert.match(parts[1], new RegExp(`^… .* \\[2/2 ${tag}\\]$`));
 		for (const p of parts) assert.ok(Buffer.byteLength(p) <= 115, p);
 		// broken between words, nothing lost but what two messages can't hold
-		assert.equal(parts.join(" ").replace(/ … … /, " ").split(" ").slice(0, 25).join(" "),
+		assert.equal(parts.join(" ").replace(/ … \[1\/2 ..\] … /, " ").split(" ").slice(0, 25).join(" "),
 			("11/G Line: " + "No service on 3rd Ave due to police activity. Use 2nd Ave stops. ".repeat(3)).split(" ").slice(0, 25).join(" "));
 		assert.equal(await b.nextBroadcast(TUE_0810), "11/G Line: Snow routes in effect");
 		assert.equal(await b.nextBroadcast(TUE_0810), "11/G Line: Stop closed for sidewalk work");
 		assert.equal(await b.nextBroadcast(TUE_0810), null);
 		const { splitAlert } = b;
 		assert.deepEqual(splitAlert("short"), ["short"]);
-		assert.ok(splitAlert("x ".repeat(200)).length === 2 && splitAlert("x ".repeat(200))[1].endsWith("…"));
+		const long = splitAlert("x ".repeat(200), "k3");
+		assert.equal(long.length, 2);
+		assert.ok(long[0].endsWith("… [1/2 k3]") && long[1].endsWith("… [2/2 k3]"), long.join(" | "));
+		for (const p of long) assert.ok(Buffer.byteLength(p) <= 115);
 	});
 	it("posts nothing when switched off, or when alerts can't be reached", async () => {
 		fresh();
