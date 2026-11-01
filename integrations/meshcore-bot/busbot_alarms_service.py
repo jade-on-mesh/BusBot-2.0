@@ -160,7 +160,9 @@ class BusBotAlarmsService(BaseServicePlugin):
         sent = False
         for i, part in enumerate(parts):
             if i:
-                await asyncio.sleep(2)
+                # Long enough for the first part's flood to clear the mesh,
+                # so riders get the parts in order.
+                await asyncio.sleep(8)
             if await self.bot.command_manager.send_channel_message(self.channel, part, skip_user_rate_limit=True):
                 sent = True
         if sent:

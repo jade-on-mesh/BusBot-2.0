@@ -298,7 +298,7 @@ const startAlertPosts = () => {
 			if (Date.now() - lastChannelActivity < quietMinutes() * 60_000) return;
 			const parts = await nextBroadcastParts();
 			for (const [i, part] of (parts ?? []).entries()) {
-				if (i) await new Promise((r) => setTimeout(r, 2000));
+				if (i) await new Promise((r) => setTimeout(r, 8000)); // let the first part's flood clear
 				await sendToChannel(part);
 			}
 		} catch (e) {
