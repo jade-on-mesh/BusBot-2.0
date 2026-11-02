@@ -343,6 +343,8 @@ describe("Cascadia: several agencies", () => {
 	it("reads a typed number as the sign's, not an internal id", () => {
 		const found = gtfs.findStops("80", "ct");
 		assert.deepEqual(found.map((s) => s.stop_name), ["Signpost Stop"]);
+		// and shown by its sign number too
+		assert.equal(gtfs.stopRef(found[0]), "ct 80");
 	});
 	it("skips feeds that haven't been downloaded", () => {
 		assert.deepEqual([...gtfs.feeds.keys()], ["kcm", "ct"]);

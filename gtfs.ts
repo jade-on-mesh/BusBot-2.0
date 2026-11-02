@@ -222,8 +222,12 @@ export const agencyCode = (agency: string) => feeds.get(agency)?.codes[0] ?? age
 export const agencyName = (agency: string) => feeds.get(agency)?.name ?? agency;
 
 // How a rider would type this stop: "1120" for the default agency, else "ct 1120".
-export const stopRef = (stop: Stop) =>
-	stop.agency === defaultAgency ? stop.stop_id : `${agencyCode(stop.agency)} ${stop.stop_id}`;
+// What a rider types for this stop: the number on its sign (stop_code), or
+// the feed's id when the agency doesn't publish sign numbers.
+export const stopRef = (stop: Stop) => {
+	const n = stop.stop_code || stop.stop_id;
+	return stop.agency === defaultAgency ? n : `${agencyCode(stop.agency)} ${n}`;
+};
 
 export const findStops = (typed: string, agency?: string): Stop[] => {
 	const all = stopsByTyped.get(typed.trim().toLowerCase()) ?? [];
