@@ -238,7 +238,16 @@ export const resolvePlace = async (
 type Leg =
 	| { kind: "ride"; trip: string; from: number; to: number; depMs: number; arrMs: number }
 	| { kind: "walk"; from: number; to: number; sec: number };
-export type Plan = { legs: Leg[]; startWalkSec: number; endWalkSec: number; arriveMs: number; leaveMs: number };
+export type Plan = {
+	legs: Leg[];
+	startWalkSec: number;
+	endWalkSec: number;
+	arriveMs: number;
+	leaveMs: number;
+	// A ride with no change that arrives up to ONE_SEAT_EXTRA_MS later, when
+	// the plan itself has a change: offered as "↪ or no change: …".
+	oneSeat?: Plan;
+};
 
 const lowerBound = (a: Int32Array, v: number) => {
 	let lo = 0;
@@ -254,6 +263,7 @@ const lowerBound = (a: Int32Array, v: number) => {
 // Riders would rather stay on one vehicle than change for a small saving:
 // a plan with fewer rides wins unless the fastest one saves more than this.
 const MAX_RIDES = 4;
+const ONE_SEAT_EXTRA_MS = 20 * 60_000;
 const fewerRidesSlackMs = (fastestMs: number, nowMs: number) => Math.max(8 * 60_000, 0.2 * (fastestMs - nowMs));
 
 // Round-based Connection Scan: round r finds the earliest arrival everywhere
@@ -379,46 +389,57 @@ export const planTrip = (origin: Cands, dest: Cands, nowMs: number, rides?: numb
 		? Math.min(rides, rounds.length - 1)
 		: rounds.findIndex((x) => x.best <= fastest + fewerRidesSlackMs(fastest, nowMs));
 	if (rounds[r].best === Infinity) return undefined;
-	const bestStop = rounds[r].bestStop;
-	const arriveMs = rounds[r].best;
-
-	// Walk back from the destination stop to build the legs.
-	const legs: Leg[] = [];
-	let s = bestStop;
-	for (let guard = 0; r > 0 && guard < 50; guard++) {
-		const R = rounds[r];
-		if (R.via[s] === 3) { r--; continue; }
-		if (R.via[s] === 2) {
-			const p = R.footFrom[s];
-			legs.unshift({ kind: "walk", from: p, to: s, sec: Math.round((R.earliest[s] - R.earliest[p]) / 1000) });
-			s = p;
-			continue;
-		}
-		if (R.via[s] !== 1) break;
-		const c = R.inConn[s];
-		const d = R.inDay[s];
-		const enter = R.entered.get(d * T + n.trip[c])!;
-		legs.unshift({
-			kind: "ride",
-			trip: n.tripKeys[n.trip[c]],
-			from: n.from[enter],
-			to: s,
-			depMs: days[d].startEpochMs + n.dep[enter] * 1000,
-			arrMs: days[d].startEpochMs + n.arr[c] * 1000,
-		});
-		s = n.from[enter];
-		r--;
+	const plan = build(r);
+	if (plan && !rides) {
+		const changes = plan.legs.filter((l) => l.kind === "ride").length;
+		if (changes > 1 && rounds[1] && rounds[1].best <= plan.arriveMs + ONE_SEAT_EXTRA_MS) plan.oneSeat = build(1);
 	}
-	const first = legs.find((l) => l.kind === "ride") as Extract<Leg, { kind: "ride" }> | undefined;
-	if (!first) return undefined;
-	const startWalkSec = origin.get(s) ?? 0;
-	return {
-		legs,
-		startWalkSec,
-		endWalkSec: dest.get(bestStop) ?? 0,
-		arriveMs,
-		leaveMs: first.depMs - startWalkSec * 1000,
-	};
+	return plan;
+
+	// Walk back from round [r]'s destination stop to build the legs.
+	function build(r: number): Plan | undefined {
+		const bestStop = rounds[r].bestStop;
+		const arriveMs = rounds[r].best;
+		const legs: Leg[] = [];
+		let s = bestStop;
+		for (let guard = 0; r > 0 && guard < 50; guard++) {
+			const R = rounds[r];
+			if (R.via[s] === 3) {
+				r--;
+				continue;
+			}
+			if (R.via[s] === 2) {
+				const p = R.footFrom[s];
+				legs.unshift({ kind: "walk", from: p, to: s, sec: Math.round((R.earliest[s] - R.earliest[p]) / 1000) });
+				s = p;
+				continue;
+			}
+			if (R.via[s] !== 1) break;
+			const c = R.inConn[s];
+			const d = R.inDay[s];
+			const enter = R.entered.get(d * T + n.trip[c])!;
+			legs.unshift({
+				kind: "ride",
+				trip: n.tripKeys[n.trip[c]],
+				from: n.from[enter],
+				to: s,
+				depMs: days[d].startEpochMs + n.dep[enter] * 1000,
+				arrMs: days[d].startEpochMs + n.arr[c] * 1000,
+			});
+			s = n.from[enter];
+			r--;
+		}
+		const first = legs.find((l) => l.kind === "ride") as Extract<Leg, { kind: "ride" }> | undefined;
+		if (!first) return undefined;
+		const startWalkSec = origin.get(s) ?? 0;
+		return {
+			legs,
+			startWalkSec,
+			endWalkSec: dest.get(bestStop) ?? 0,
+			arriveMs,
+			leaveMs: first.depMs - startWalkSec * 1000,
+		};
+	}
 };
 
 // ---------- reply ----------
@@ -458,6 +479,19 @@ export const formatPlan = (p: Plan, nowMs = Date.now()) => {
 		lines.push(em(routeEmoji(route), `${name} ${clock(l.depMs)}${boardAt} → ${shortStop(n.stops[l.to])} ${clock(l.arrMs)}`));
 	});
 	if (p.endWalkSec >= 60) lines.push(em("🚶", `${mins(p.endWalkSec)} min to destination`));
+	// The no-change ride, when it's not much slower (riders often prefer it).
+	const one = p.oneSeat?.legs.find((l) => l.kind === "ride") as Extract<Leg, { kind: "ride" }> | undefined;
+	if (one) {
+		const route = routesByKey.get(tripsByKey.get(one.trip)!.route_key);
+		const board = shortStop(n.stops[one.from]);
+		const sameStart = board === shortStop(n.stops[firstRide.from]);
+		lines.push(
+			em(
+				"↪️",
+				`or no change: ${shortName(route)} ${clock(one.depMs)}${sameStart ? "" : ` from ${board}`} → ${shortStop(n.stops[one.to])} ${clock(p.oneSeat!.arriveMs)}`,
+			),
+		);
+	}
 	return lines.join("\n");
 };
 

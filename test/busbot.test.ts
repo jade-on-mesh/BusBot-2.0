@@ -707,7 +707,9 @@ describe("trip planner (go)", () => {
 	before(() => (Date.now = () => TUE_0740));
 	after(() => (Date.now = realNow));
 	const PLAN =
-		"Arrive 8:25 · 45 min · 1 transfer · timetable\n11 7:50 from Broadway & E Pine St → 3rd Ave & Pike St, Bay 2 8:00\n1 min to 4th Ave & Union St\n49 8:15 from 4th Ave & Union St → Broadway & E Madison St 8:25";
+		"Arrive 8:25 · 45 min · 1 transfer · timetable\n11 7:50 from Broadway & E Pine St → 3rd Ave & Pike St, Bay 2 8:00\n1 min to 4th Ave & Union St\n49 8:15 from 4th Ave & Union St → Broadway & E Madison St 8:25\n" +
+		// the 49 without a change, 15 min later, is offered too
+		"or no change: 49 7:52 → Broadway & E Madison St 8:40";
 	it("plans a trip with a walk and a transfer, from stop numbers", async () => {
 		assert.equal(await handleCommand("go 11040 to 11050", { isDM: false }), PLAN);
 	});
