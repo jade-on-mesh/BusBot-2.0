@@ -259,7 +259,12 @@ const fewerRidesSlackMs = (fastestMs: number, nowMs: number) => Math.max(8 * 60_
 // Round-based Connection Scan: round r finds the earliest arrival everywhere
 // with at most r rides (boarding only where round r-1 got to), so plans with
 // fewer changes can be compared with the fastest.
-export const planTrip = (origin: Cands, dest: Cands, nowMs: number): Plan | "here" | undefined => {
+// The stops a place resolved to, nearest first (scripts/plan.ts).
+export const planStops = (c: Cands): [Stop, number][] =>
+	[...c].sort((x, y) => x[1] - y[1]).map(([i, sec]) => [getNet().stops[i], sec]);
+
+// [rides]: the best plan with at most that many rides instead (scripts/plan.ts).
+export const planTrip = (origin: Cands, dest: Cands, nowMs: number, rides?: number): Plan | "here" | undefined => {
 	const n = getNet();
 	for (const s of origin.keys()) if (dest.has(s)) return "here";
 	const N = n.stops.length;
@@ -370,7 +375,10 @@ export const planTrip = (origin: Cands, dest: Cands, nowMs: number): Plan | "her
 	// The fewest rides that arrive close enough to the fastest.
 	const fastest = Math.min(...rounds.map((r) => r.best));
 	if (fastest === Infinity) return undefined;
-	let r = rounds.findIndex((x) => x.best <= fastest + fewerRidesSlackMs(fastest, nowMs));
+	let r = rides
+		? Math.min(rides, rounds.length - 1)
+		: rounds.findIndex((x) => x.best <= fastest + fewerRidesSlackMs(fastest, nowMs));
+	if (rounds[r].best === Infinity) return undefined;
 	const bestStop = rounds[r].bestStop;
 	const arriveMs = rounds[r].best;
 
