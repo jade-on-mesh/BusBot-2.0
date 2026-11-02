@@ -251,20 +251,19 @@ const lowerBound = (a: Int32Array, v: number) => {
 	return lo;
 };
 
+// Riders would rather stay on one vehicle than change for a small saving:
+// a plan with fewer rides wins unless the fastest one saves more than this.
+const MAX_RIDES = 4;
+const fewerRidesSlackMs = (fastestMs: number, nowMs: number) => Math.max(8 * 60_000, 0.2 * (fastestMs - nowMs));
+
+// Round-based Connection Scan: round r finds the earliest arrival everywhere
+// with at most r rides (boarding only where round r-1 got to), so plans with
+// fewer changes can be compared with the fastest.
 export const planTrip = (origin: Cands, dest: Cands, nowMs: number): Plan | "here" | undefined => {
 	const n = getNet();
 	for (const s of origin.keys()) if (dest.has(s)) return "here";
 	const N = n.stops.length;
-	const earliest = new Float64Array(N).fill(Infinity);
-	const isOrigin = new Uint8Array(N);
-	const via = new Int8Array(N); // 1 ride, 2 walk
-	const inConn = new Int32Array(N).fill(-1);
-	const inDay = new Int8Array(N);
-	const footFrom = new Int32Array(N).fill(-1);
-	for (const [s, walk] of origin) {
-		earliest[s] = nowMs + walk * 1000;
-		isOrigin[s] = 1;
-	}
+	const T = n.tripKeys.length;
 	const days: ServiceDay[] = serviceDays(nowMs);
 	const active = days.map(() => new Map<string, boolean>());
 	const runs = (trip: number, d: number) => {
@@ -273,74 +272,124 @@ export const planTrip = (origin: Cands, dest: Cands, nowMs: number): Plan | "her
 		if (v === undefined) active[d].set(key, (v = isServiceActive(key, days[d])));
 		return v;
 	};
-	const entered = new Map<number, number>(); // day*trips+trip -> boarding connection
-	const T = n.tripKeys.length;
 	const horizon = nowMs + HORIZON_MS;
-	let best = Infinity;
-	let bestStop = -1;
-	const ptr = days.map((day) => lowerBound(n.dep, Math.floor((nowMs - day.startEpochMs) / 1000)));
-	const absDep = (d: number) => (ptr[d] < n.dep.length ? days[d].startEpochMs + n.dep[ptr[d]] * 1000 : Infinity);
+	const start = days.map((day) => lowerBound(n.dep, Math.floor((nowMs - day.startEpochMs) / 1000)));
 
-	while (true) {
-		// next connection across today's and yesterday's (after-midnight) service
-		let d = 0;
-		for (let k = 1; k < days.length; k++) if (absDep(k) < absDep(d)) d = k;
-		const depMs = absDep(d);
-		if (depMs === Infinity || depMs > horizon || depMs >= best) break;
-		const c = ptr[d]++;
-		const trip = n.trip[c];
-		if (!runs(trip, d)) continue;
-		const tk = d * T + trip;
-		const from = n.from[c];
-		if (!entered.has(tk)) {
-			const ready = earliest[from] + (isOrigin[from] ? 0 : TRANSFER_MS);
-			if (ready > depMs) continue;
-			entered.set(tk, c);
-		}
-		const arrMs = days[d].startEpochMs + n.arr[c] * 1000;
-		const to = n.to[c];
-		if (arrMs < earliest[to]) {
-			earliest[to] = arrMs;
-			isOrigin[to] = 0;
-			via[to] = 1;
-			inConn[to] = c;
-			inDay[to] = d;
-			const w = dest.get(to);
-			if (w !== undefined && arrMs + w * 1000 < best) {
-				best = arrMs + w * 1000;
-				bestStop = to;
+	type Round = {
+		earliest: Float64Array;
+		atOrigin: Uint8Array; // reached by walking from the start, no ride yet
+		via: Int8Array; // 0 origin, 1 ride, 2 walk, 3 as in the round before
+		inConn: Int32Array;
+		inDay: Int8Array;
+		footFrom: Int32Array;
+		entered: Map<number, number>;
+		best: number;
+		bestStop: number;
+	};
+	const round0: Round = {
+		earliest: new Float64Array(N).fill(Infinity),
+		atOrigin: new Uint8Array(N),
+		via: new Int8Array(N),
+		inConn: new Int32Array(N).fill(-1),
+		inDay: new Int8Array(N),
+		footFrom: new Int32Array(N).fill(-1),
+		entered: new Map(),
+		best: Infinity,
+		bestStop: -1,
+	};
+	for (const [s, walk] of origin) {
+		round0.earliest[s] = nowMs + walk * 1000;
+		round0.atOrigin[s] = 1;
+	}
+	const rounds: Round[] = [round0];
+	for (let r = 1; r <= MAX_RIDES; r++) {
+		const prev = rounds[r - 1];
+		const cur: Round = {
+			earliest: Float64Array.from(prev.earliest),
+			atOrigin: Uint8Array.from(prev.atOrigin),
+			via: new Int8Array(N).fill(3),
+			inConn: new Int32Array(N).fill(-1),
+			inDay: new Int8Array(N),
+			footFrom: new Int32Array(N).fill(-1),
+			entered: new Map(),
+			best: prev.best,
+			bestStop: prev.bestStop,
+		};
+		const reach = (stop: number, t: number) => {
+			const w = dest.get(stop);
+			if (w !== undefined && t + w * 1000 < cur.best) {
+				cur.best = t + w * 1000;
+				cur.bestStop = stop;
 			}
-			for (const f of n.foot[to]) {
-				const t = arrMs + f.sec * 1000;
-				if (t < earliest[f.to]) {
-					earliest[f.to] = t;
-					isOrigin[f.to] = 0;
-					via[f.to] = 2;
-					footFrom[f.to] = to;
-					const w2 = dest.get(f.to);
-					if (w2 !== undefined && t + w2 * 1000 < best) {
-						best = t + w2 * 1000;
-						bestStop = f.to;
+		};
+		const ptr = [...start];
+		const absDep = (d: number) => (ptr[d] < n.dep.length ? days[d].startEpochMs + n.dep[ptr[d]] * 1000 : Infinity);
+		let improved = false;
+		while (true) {
+			// next connection across today's and yesterday's (after-midnight) service
+			let d = 0;
+			for (let k = 1; k < days.length; k++) if (absDep(k) < absDep(d)) d = k;
+			const depMs = absDep(d);
+			if (depMs === Infinity || depMs > horizon || depMs >= cur.best) break;
+			const c = ptr[d]++;
+			const trip = n.trip[c];
+			const tk = d * T + trip;
+			if (!cur.entered.has(tk)) {
+				const from = n.from[c];
+				// board only where the round before got to (one ride fewer)
+				const ready = prev.earliest[from] + (prev.atOrigin[from] ? 0 : TRANSFER_MS);
+				if (ready > depMs || !runs(trip, d)) continue;
+				cur.entered.set(tk, c);
+			}
+			const arrMs = days[d].startEpochMs + n.arr[c] * 1000;
+			const to = n.to[c];
+			if (arrMs < cur.earliest[to]) {
+				improved = true;
+				cur.earliest[to] = arrMs;
+				cur.atOrigin[to] = 0;
+				cur.via[to] = 1;
+				cur.inConn[to] = c;
+				cur.inDay[to] = d;
+				reach(to, arrMs);
+				for (const f of n.foot[to]) {
+					const t = arrMs + f.sec * 1000;
+					if (t < cur.earliest[f.to]) {
+						cur.earliest[f.to] = t;
+						cur.atOrigin[f.to] = 0;
+						cur.via[f.to] = 2;
+						cur.footFrom[f.to] = to;
+						reach(f.to, t);
 					}
 				}
 			}
 		}
+		rounds.push(cur);
+		if (!improved) break; // another ride can't help
 	}
-	if (bestStop < 0) return undefined;
+
+	// The fewest rides that arrive close enough to the fastest.
+	const fastest = Math.min(...rounds.map((r) => r.best));
+	if (fastest === Infinity) return undefined;
+	let r = rounds.findIndex((x) => x.best <= fastest + fewerRidesSlackMs(fastest, nowMs));
+	const bestStop = rounds[r].bestStop;
+	const arriveMs = rounds[r].best;
 
 	// Walk back from the destination stop to build the legs.
 	const legs: Leg[] = [];
 	let s = bestStop;
-	for (let guard = 0; !isOrigin[s] && guard < 50; guard++) {
-		if (via[s] === 2) {
-			const prev = footFrom[s];
-			legs.unshift({ kind: "walk", from: prev, to: s, sec: Math.round((earliest[s] - earliest[prev]) / 1000) });
-			s = prev;
+	for (let guard = 0; r > 0 && guard < 50; guard++) {
+		const R = rounds[r];
+		if (R.via[s] === 3) { r--; continue; }
+		if (R.via[s] === 2) {
+			const p = R.footFrom[s];
+			legs.unshift({ kind: "walk", from: p, to: s, sec: Math.round((R.earliest[s] - R.earliest[p]) / 1000) });
+			s = p;
 			continue;
 		}
-		const c = inConn[s];
-		const d = inDay[s];
-		const enter = entered.get(d * T + n.trip[c])!;
+		if (R.via[s] !== 1) break;
+		const c = R.inConn[s];
+		const d = R.inDay[s];
+		const enter = R.entered.get(d * T + n.trip[c])!;
 		legs.unshift({
 			kind: "ride",
 			trip: n.tripKeys[n.trip[c]],
@@ -350,6 +399,7 @@ export const planTrip = (origin: Cands, dest: Cands, nowMs: number): Plan | "her
 			arrMs: days[d].startEpochMs + n.arr[c] * 1000,
 		});
 		s = n.from[enter];
+		r--;
 	}
 	const first = legs.find((l) => l.kind === "ride") as Extract<Leg, { kind: "ride" }> | undefined;
 	if (!first) return undefined;
@@ -358,7 +408,7 @@ export const planTrip = (origin: Cands, dest: Cands, nowMs: number): Plan | "her
 		legs,
 		startWalkSec,
 		endWalkSec: dest.get(bestStop) ?? 0,
-		arriveMs: best,
+		arriveMs,
 		leaveMs: first.depMs - startWalkSec * 1000,
 	};
 };

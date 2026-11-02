@@ -53,6 +53,7 @@ A channel reply about a stop ends with a line like `📍 47.60970,-122.33830 · 
 ```
 
 - Places can be stop numbers (`1120`, `ct 1120`), cross streets, addresses or landmarks (when online), or `here` in a DM (your radio's advertised position).
+- It prefers fewer changes: a plan with fewer rides wins unless the fastest one arrives more than 8 minutes (or a fifth of the trip, if more) sooner. So `go capitol hill to redmond technology` stays on the 2 Line rather than switching to a bus at Westlake for a few minutes' gain.
 - It allows 2 minutes to change vehicles and walks of up to about 5 minutes between nearby stops; from a place, it considers every stop within a 10-minute walk.
 - Times are timetable, not live: the reply says `timetable` so riders know. Use `bus` at the boarding stop for live times.
 - The network is built in the background a few seconds after BusBot starts (about a second and a few tens of MB for the whole region on a desktop; give a Pi a little longer). A plan then takes well under a second.

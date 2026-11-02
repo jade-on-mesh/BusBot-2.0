@@ -9,5 +9,7 @@
 {"trip_id":"T_HOL","arrival_time":"08:14:00","departure_time":"08:14:00","stop_id":"1120","stop_sequence":"9"},
 {"trip_id":"T_49","arrival_time":"08:15:00","departure_time":"08:15:00","stop_id":"1121","stop_sequence":"3"},
 {"trip_id":"T_49","arrival_time":"08:25:00","departure_time":"08:25:00","stop_id":"11050","stop_sequence":"12"},
-{"trip_id":"T_37","arrival_time":"09:00:00","departure_time":"09:00:00","stop_id":"1700","stop_sequence":"1"}
+{"trip_id":"T_37","arrival_time":"09:00:00","departure_time":"09:00:00","stop_id":"1700","stop_sequence":"1"},
+{"trip_id":"T_49D","arrival_time":"07:52:00","departure_time":"07:52:00","stop_id":"11040","stop_sequence":"1"},
+{"trip_id":"T_49D","arrival_time":"08:40:00","departure_time":"08:40:00","stop_id":"11050","stop_sequence":"20"}
 ]

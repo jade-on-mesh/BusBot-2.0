@@ -7,5 +7,6 @@
 {"route_id":"100011","service_id":"OLD","trip_id":"T_OLD","trip_headsign":"Downtown","direction_id":"0"},
 {"route_id":"100011","service_id":"HOL","trip_id":"T_HOL","trip_headsign":"Downtown","direction_id":"0"},
 {"route_id":"100049","service_id":"WKDY","trip_id":"T_49","trip_headsign":"Broadway","direction_id":"1"},
-{"route_id":"100037","service_id":"WKDY","trip_id":"T_37","trip_headsign":"Alki Beach","direction_id":"0"}
+{"route_id":"100037","service_id":"WKDY","trip_id":"T_37","trip_headsign":"Alki Beach","direction_id":"0"},
+{"route_id":"100049","service_id":"WKDY","trip_id":"T_49D","trip_headsign":"Broadway","direction_id":"1"}
 ]

@@ -8,3 +8,4 @@ route_id,service_id,trip_id,trip_headsign,direction_id
 100011,HOL,T_HOL,Downtown,0
 100049,WKDY,T_49,Broadway,1
 100037,WKDY,T_37,Alki Beach,0
+100049,WKDY,T_49D,Broadway,1

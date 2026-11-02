@@ -290,7 +290,7 @@ describe("stops search", () => {
 				q,
 			);
 		}
-		assert.match((await handleCommand("stops broadway east pine", { isDM: false }))!, /^broadway east pine:\n11040 Broadway & E Pine St → 11$/);
+		assert.match((await handleCommand("stops broadway east pine", { isDM: false }))!, /^broadway east pine:\n11040 Broadway & E Pine St → 11, 49$/);
 	});
 	it("doesn't let one-letter directions match everything", async () => {
 		process.env.GEOCODE = "off";
@@ -306,7 +306,7 @@ describe("stops search", () => {
 		}) as typeof fetch;
 		const reply = await handleCommand("stops 1100 broadway", { isDM: false });
 		assert.match(url, /nominatim\.openstreetmap\.org\/search\?q=1100\+broadway.*bounded=1/);
-		assert.match(reply!, /^Near Somewhere on Broadway:\n11040 Broadway & E Pine St · 350 ft → 11\n11050 Broadway & E Madison St · 0\.6 mi → 49\n1121 4th Ave & Union St · 1\.2 mi → 49$/);
+		assert.match(reply!, /^Near Somewhere on Broadway:\n11040 Broadway & E Pine St · 350 ft → 11, 49\n11050 Broadway & E Madison St · 0\.6 mi → 49\n1121 4th Ave & Union St · 1\.2 mi → 49$/);
 	});
 	it("says so when the place isn't in King County", async () => {
 		process.env.GEOCODE = "on";
@@ -684,7 +684,7 @@ describe("near", () => {
 	it("lists the closest stops to the rider's advert, in DMs", async () => {
 		assert.equal(
 			await handleCommand("near", { isDM: true, near: DOWNTOWN }),
-			"Near you:\n1121 4th Ave & Union St · 50 ft → 49\n1120 3rd Ave & Pike St, Bay 2 · 200 ft → 11, G Line\n11040 Broadway & E Pine St · 1.1 mi → 11",
+			"Near you:\n1121 4th Ave & Union St · 50 ft → 49\n1120 3rd Ave & Pike St, Bay 2 · 200 ft → 11, G Line\n11040 Broadway & E Pine St · 1.1 mi → 11, 49",
 		);
 	});
 	it("won't reveal where someone is in a channel", async () => {
@@ -718,6 +718,21 @@ describe("trip planner (go)", () => {
 		const near = { lat: 47.6105, lon: -122.32 };
 		assert.equal(await handleCommand("go to 11050", { isDM: true, near }), PLAN);
 		assert.match((await handleCommand("go to 11050", { isDM: false, near }))!, /^DM me to plan from "here"/);
+	});
+	it("stays on one vehicle unless changing saves real time", async () => {
+		// From 7:40 the change (arrive 8:25) beats the one-seat 49 (8:40) by
+		// 15 min of a 45 min trip: worth it. Asked at 6:40 it's 15 min of 105:
+		// stay on the bus.
+		const early = (await handleCommand("go 11040 to 11050", { isDM: false }))!;
+		assert.match(early, /1 transfer/);
+		const was = Date.now;
+		Date.now = () => t("2026-10-27T13:40:00Z");
+		try {
+			const r = (await handleCommand("go 11040 to 11050", { isDM: false }))!;
+			assert.match(r, /^Arrive 8:40 · 120 min · timetable\n49 7:52 from Broadway & E Pine St → Broadway & E Madison St 8:40$/);
+		} finally {
+			Date.now = was;
+		}
 	});
 	it("says when places are a short walk apart, or nothing runs", async () => {
 		assert.match((await handleCommand("go 1120 to 1121", { isDM: false }))!, /short walk/);
