@@ -1,3 +1,5 @@
 stop_id,stop_code,stop_name,stop_lat,stop_lon
 1120,1120,Everett Station Bay 3,47.9750,-122.1970
 5000,5000,Colby Ave & Pacific Ave,47.9790,-122.2020
+8000,80,Signpost Stop,47.90,-122.20
+80,8100,Internal Id Stop,47.91,-122.21

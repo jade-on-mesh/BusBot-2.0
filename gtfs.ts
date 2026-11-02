@@ -227,7 +227,13 @@ export const stopRef = (stop: Stop) =>
 
 export const findStops = (typed: string, agency?: string): Stop[] => {
 	const all = stopsByTyped.get(typed.trim().toLowerCase()) ?? [];
-	const unique = [...new Map(all.map((s) => [s.key, s])).values()];
+	const t = typed.trim().toLowerCase();
+	let unique = [...new Map(all.map((s) => [s.key, s])).values()];
+	// The number on the sign wins: where an agency has a stop with that sign
+	// number, its stops that only match by internal id ("pt 77", whose id is
+	// 1120) aren't what the rider means.
+	const bySign = new Set(unique.filter((s) => s.stop_code?.toLowerCase() === t).map((s) => s.agency));
+	unique = unique.filter((s) => !bySign.has(s.agency) || s.stop_code?.toLowerCase() === t);
 	return agency ? unique.filter((s) => s.agency === agency) : unique;
 };
 

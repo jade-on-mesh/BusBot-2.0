@@ -340,6 +340,10 @@ describe("Cascadia: several agencies", () => {
 	const realNow = Date.now;
 	before(() => (Date.now = () => TUE_0810));
 	after(() => (Date.now = realNow));
+	it("reads a typed number as the sign's, not an internal id", () => {
+		const found = gtfs.findStops("80", "ct");
+		assert.deepEqual(found.map((s) => s.stop_name), ["Signpost Stop"]);
+	});
 	it("skips feeds that haven't been downloaded", () => {
 		assert.deepEqual([...gtfs.feeds.keys()], ["kcm", "ct"]);
 	});
