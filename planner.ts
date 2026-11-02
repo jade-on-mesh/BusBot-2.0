@@ -385,16 +385,18 @@ export const formatPlan = (p: Plan, nowMs = Date.now()) => {
 	notePin(n.stops[firstRide.from], "Trip start");
 	notePin(n.stops[rideLegs[rideLegs.length - 1].to], "Trip end");
 	rideLegs.slice(1).forEach((l, i) => notePin(n.stops[l.from], i ? `Trip change ${i + 1}` : "Trip change"));
-	if (p.startWalkSec >= 60) lines.push(em("🚶", `${mins(p.startWalkSec)} min to ${stopRef(n.stops[firstRide.from])}`));
+	// Stops by name: a station's number ("st 990005") means nothing to a
+	// rider. The position line keeps the number for the apps.
+	if (p.startWalkSec >= 60) lines.push(em("🚶", `${mins(p.startWalkSec)} min to ${shortStop(n.stops[firstRide.from])}`));
 	p.legs.forEach((l, i) => {
 		if (l.kind === "walk") {
-			lines.push(em("🚶", `${mins(l.sec)} min to ${stopRef(n.stops[l.to])}`));
+			lines.push(em("🚶", `${mins(l.sec)} min to ${shortStop(n.stops[l.to])}`));
 			return;
 		}
 		const trip = tripsByKey.get(l.trip)!;
 		const route = routesByKey.get(trip.route_key);
 		const name = shortName(route);
-		const boardAt = i === 0 || p.legs[i - 1]?.kind === "walk" ? ` ${stopRef(n.stops[l.from])}` : "";
+		const boardAt = i === 0 || p.legs[i - 1]?.kind === "walk" ? ` from ${shortStop(n.stops[l.from])}` : "";
 		lines.push(em(routeEmoji(route), `${name} ${clock(l.depMs)}${boardAt} → ${shortStop(n.stops[l.to])} ${clock(l.arrMs)}`));
 	});
 	if (p.endWalkSec >= 60) lines.push(em("🚶", `${mins(p.endWalkSec)} min to destination`));
